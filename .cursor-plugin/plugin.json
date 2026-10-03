@@ -1,0 +1,21 @@
+{
+	"name": "dzstack",
+	"displayName": "dzstack",
+	"version": "0.1.0",
+	"description": "High-rigor, token-efficient engineering mode. Zero fluff, lean unbloated code, neutral candor, and verified UI/runtime execution.",
+	"author": {
+		"name": "Michael Daza"
+	},
+	"license": "MIT",
+	"keywords": [
+		"dzstack",
+		"token-conservation",
+		"anti-bloat",
+		"rigorous-engineering",
+		"verification",
+		"subagents"
+	],
+	"category": "developer-tools",
+	"skills": "./skills/",
+	"agents": "./agents/"
+}

@@ -176,6 +176,7 @@ Every incoming task maps to a structured playbook. The playbook steps are loaded
 
 | Task Type | Intent | Playbook |
 |---|---|---|
+| **Ideation & Strategy** | Feature brainstorming, feasibility, roadmap | `playbooks/ideation.md` |
 | **Bug Fix** | Defect with reproduction step | `playbooks/bug-fix.md` |
 | **Feature** | New functionality or API extension | `playbooks/feature.md` |
 | **Investigation** | Read-only questions, architectural forensics | `playbooks/investigation.md` |

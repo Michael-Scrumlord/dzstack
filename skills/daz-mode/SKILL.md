@@ -49,26 +49,67 @@ The Principles section below grounds every trigger. In your reply, name each pri
 
 ---
 
-## Autonomy & Decision Guardrails
+## Principles
 
-- **Reversible work:** Just execute it. Refactor, write tests, inspect code, and fix defects without blocking for confirmation.
-- **Irreversible actions:** Always pause and ask before force-pushing, dropping databases, deleting production branches, or performing external mutations.
-- **Empirical forks:** If a design choice can be settled by running a benchmark or prototype, build a throwaway test and let the data decide. Do not interrupt the user with questions code can answer.
+Read the leaf skill in full for any principle you apply. Each entry names when it applies.
+
+**Core**
+
+- **Laziness Protocol** (`principle-laziness-protocol`). Refactoring, sizing a diff, or tempted to add abstractions, layers, or signal threading. Bias to deletion and the smallest change that solves the problem.
+- **Foundational Thinking** (`principle-foundational-thinking`). Before writing logic: core types and data structures, scaffold-vs-feature sequencing, what concurrent actors share.
+- **Redesign from First Principles** (`principle-redesign-from-first-principles`). Integrating a new requirement into an existing design. Redesign as if it had been foundational from day one.
+- **Attack the Premise** (`principle-attack-the-premise`). Two or more fixes that share one premise have failed the same gate. Take a census of which actors hold the imbalance before the next fix, then question the premise instead of writing another fix that assumes it.
+- **Subtract Before You Add** (`principle-subtract-before-you-add`). Sequencing an addition, refactor, or rewrite. Remove dead weight first, then build on the simpler base.
+- **Minimize Reader Load** (`principle-minimize-reader-load`). Reviewing or shaping code that is hard to trace. Count layers and hidden state, collapse one-caller wrappers, shrink mutable scope.
+- **Outcome-Oriented Execution** (`principle-outcome-oriented-execution`). Planned rewrites and migrations with explicit phase boundaries. Converge on the target architecture, do not preserve throwaway compatibility states.
+- **Experience First** (`principle-experience-first`). Product, UX, or feature-scope tradeoffs. Choose user delight over implementation convenience.
+- **Exhaust the Design Space** (`principle-exhaust-the-design-space`). A novel interaction or architectural decision with no precedent. Build 2-3 competing prototypes and compare before committing.
+- **Build the Lever** (`principle-build-the-lever`). Any non-trivial work. Build the tool that does or proves it (codemod, script, generator), not by hand. The tool is the artifact a reviewer reruns.
+
+**Architecture**
+
+- **Model the Domain** (`principle-model-the-domain`). Writing stateful logic, or code that branches a lot or repeats a shape assumption across files. Encode the domain in a structure (state machine, typed model, table/registry, reducer) instead of scattered conditionals.
+- **Boundary Discipline** (`principle-boundary-discipline`). Wiring validation, error handling, or framework adapters. Guards at system boundaries, trust internal types, keep business logic pure.
+- **Type System Discipline** (`principle-type-system-discipline`). Designing types or signatures in any typed language. Make illegal states unrepresentable, brand primitives, parse external data at boundaries.
+- **Make Operations Idempotent** (`principle-make-operations-idempotent`). Designing commands, lifecycle steps, or loops that run amid crashes and retries. Converge to the same end state.
+- **Migrate Callers Then Delete Legacy APIs** (`principle-migrate-callers-then-delete-legacy-apis`). Introducing a new internal API while old callers exist. Migrate and delete in one wave.
+- **Separate Before Serializing Shared State** (`principle-separate-before-serializing-shared-state`). Concurrent actors might write the same file, branch, key, or object. Eliminate the sharing first.
+
+**Verification**
+
+- **Prove It Works** (`principle-prove-it-works`). After a task, before declaring done. Verify against the real artifact, not a proxy or "it compiles".
+- **Fix Root Causes** (`principle-fix-root-causes`). Debugging. Trace each symptom to its root cause, reproduce first, ask why until you reach it.
+- **Sequence Work into Verifiable Units** (`principle-sequence-verifiable-units`). Multi-step work and commit stacking. Break work into small units that each end in a check, verify each before the next.
+- **Test Behavior, Not Implementation** (`principle-test-behavior-not-implementation`). Writing, changing, or keeping a test. Call the code the way its users do and assert the result against a literal expected value.
+
+**Delegation**
+
+- **Guard the Context Window** (`principle-guard-the-context-window`). Context fills up: large outputs, long files, repeated reads. Route bulk to subagents, keep summaries in the main thread.
+- **Never Block on the Human** (`principle-never-block-on-the-human`). Tempted to ask "should I do X?" on reversible work. Proceed, present the result, let the human course-correct.
+
+**Meta**
+
+- **Encode Lessons in Structure** (`principle-encode-lessons-in-structure`). You catch yourself writing the same instruction a second time. Encode it as a lint, metadata flag, runtime check, or script instead of more text.
 
 ---
 
-## Principles Index
+## Autonomy
 
-Read the leaf skill in full for any principle you apply.
+- **Just do it:** Reversible work, test execution, refactoring, and code inspections proceed autonomously without blocking for user permission.
+- **Always pause:** For irreversible actions: force-pushing shared branches, production deployments, database drops, and destructive file deletions.
+- **Session overrides:** Prompts like "don't stop", "run until done", or "going to bed" grant full autonomy to drive tasks to completion.
+- **No is an acceptable answer:** Candor over sycophancy. Decline, push back, or state that a proposal does not earn its place when true. Agreement is not the default.
 
-- **Laziness Protocol** (`principle-laziness-protocol`): Bias toward deletion, shallow call hierarchy, and the smallest diff that solves the problem.
-- **Model the Domain** (`principle-model-the-domain`): Encode the domain in explicit structures, state machines, and discriminated unions instead of scattered conditionals.
-- **Prove It Works** (`principle-prove-it-works`): Verify against the real artifact, not proxies or self-reports.
-- **Guard the Context Window** (`principle-guard-the-context-window`): Route bulk to subagents; main thread keeps summaries, not raw payloads.
-- **Type System Discipline** (`principle-type-system-discipline`): Make illegal states unrepresentable; parse external data at boundaries; never lie to the compiler.
-- **Boundary Discipline** (`principle-boundary-discipline`): Concentrate validation at edges; trust internal types; keep business logic pure.
-- **Test Behavior, Not Implementation** (`principle-test-behavior-not-implementation`): Test observable external outcomes against literal values; no brittle mock theater.
-- **Sequence Verifiable Units** (`principle-sequence-verifiable-units`): Break work into small units that each end in a passing check.
+---
+
+## Subagents & Context Delegation
+
+- **Defaults for Task calls:** `run_in_background: true`, scoped domain file pointers, and minimal context payloads.
+- **Domain isolation:** Subagents receive only the isolated files and type signatures for their specific component. Never inject unrelated repo context into subagents.
+- **Role separation:** Code writing and surgical edits route to the configured fast code model. High-consequence architecture, complex concurrency, and security reviews route to deep reasoning models.
+- **Ownership:** You own every subagent's output. Review the diff yourself; never pass through unverified subagent summaries.
+- **Fresh delegates over interrupt chains:** Interrupt-chained resumes silently drop directives. Launch a fresh subagent with consolidated scope rather than trusting stale resume states.
+- **Second opinions:** For high-stakes architectural validation, run the identical prompt against a different model family. Cross-model agreement is high signal.
 
 ---
 

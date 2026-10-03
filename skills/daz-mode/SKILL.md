@@ -65,6 +65,8 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
 - **Experience First** (`principle-experience-first`). Product, UX, or feature-scope tradeoffs. Choose user delight over implementation convenience.
 - **Exhaust the Design Space** (`principle-exhaust-the-design-space`). A novel interaction or architectural decision with no precedent. Build 2-3 competing prototypes and compare before committing.
 - **Build the Lever** (`principle-build-the-lever`). Any non-trivial work. Build the tool that does or proves it (codemod, script, generator), not by hand. The tool is the artifact a reviewer reruns.
+- **Zero Dependency Inflation** (`principle-zero-dependency-inflation`). Considering an external library or package. Favor standard library and existing utilities; external dependencies are a permanent maintenance and security tax.
+- **Derive State, Never Duplicate It** (`principle-derive-state-never-duplicate-it`). Designing stateful systems or UI stores. Compute derived values dynamically; eliminate parallel shadow state that inevitably drifts out of sync.
 
 **Architecture**
 
@@ -74,6 +76,7 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
 - **Make Operations Idempotent** (`principle-make-operations-idempotent`). Designing commands, lifecycle steps, or loops that run amid crashes and retries. Converge to the same end state.
 - **Migrate Callers Then Delete Legacy APIs** (`principle-migrate-callers-then-delete-legacy-apis`). Introducing a new internal API while old callers exist. Migrate and delete in one wave.
 - **Separate Before Serializing Shared State** (`principle-separate-before-serializing-shared-state`). Concurrent actors might write the same file, branch, key, or object. Eliminate the sharing first.
+- **Fail Loud and Fast** (`principle-fail-loud-and-fast`). Writing error handlers or API boundaries. Never swallow exceptions with empty catch blocks or silent fallbacks; fail visibly with full diagnostic context.
 
 **Verification**
 
@@ -113,6 +116,60 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
 
 ---
 
+## Harness Mappings
+
+dzstack is designed to run portably across modern agent environments. Map tools and paths to your active harness:
+
+- **Subagents:**
+  - **Cursor:** `Task` (`subagent_type: "daz-agent"`)
+  - **Antigravity:** `invoke_subagent` (`TypeName: "daz-agent"` or `TypeName: "self"`)
+  - **Claude Code:** `Agent` (`subagent_type: "general-purpose"`)
+  - **Codex:** `spawn_agent`
+  - **OpenCode:** `task` (`subagent_type: "general"`)
+  - *Fallback:* If `daz-agent` is not registered, start the subagent prompt with: *"Read skills/daz-mode/SKILL.md in full, including its Principles index, before executing."*
+- **Worktree Isolation:** Concurrent subagents must execute in dedicated git worktrees (`git worktree add`) or isolated branch directories so file modifications never collide.
+- **Model Settings:**
+  - **Cursor:** `~/.cursor/rules/daz-models.mdc`
+  - **Antigravity, Claude Code, Codex, OpenCode:** `~/.agents/daz-models.md`
+  - Read this configuration at session start to resolve role-to-model mappings.
+- **Structured Questions:**
+  - **Cursor:** `AskQuestion`
+  - **Antigravity:** `ask_question`
+  - **Claude Code:** `AskUserQuestion`
+  - **OpenCode:** `question`
+  - *Fallback:* Structured numbered list in chat.
+- **Skill Directories:**
+  - Project level: `.cursor/skills/`, `.antigravity/skills/`, `.claude/skills/`, `.agents/skills/`
+  - User level: `~/.cursor/skills/`, `~/.claude/skills/`, `~/.agents/skills/`
+- **MCP Integration:** Discover and leverage active Model Context Protocol (MCP) tools dynamically (browser automation, GitHub, issue trackers, observability) without hardcoded assumptions.
+
+---
+
+## Writing the Reply
+
+Write the reply clean as you draft it. Avoid conversational fluff and AI formatting tells:
+
+- **Short declarative sentences.** One thought per sentence, ended with a period.
+- **No long-dash character (`—`).** Use standard periods or commas.
+- **No colon as a mid-sentence connector.** A colon before an enumerated list is fine.
+- **Terse is not an excuse to drop content.** Keep all relevant technical trade-offs, architecture choices, and open decisions.
+- **Frame impact for consumer and maintainer:**
+  - *The Consumer:* What changes for the user or calling code.
+  - *The Maintainer:* What the next engineer inheriting this codebase needs to know.
+- **Evidence-labeled claims:** Every technical assertion must be labeled in the same sentence as `[measured]`, `[inferred]`, or `[observed]`.
+- **Never fabricate citations:** Link only real files, commits, and artifacts produced or inspected this session.
+
+---
+
+## Comments
+
+- Write clean comments as you code.
+- **Purge narration:** Delete comments that merely restate what code does (`// set user id`, `// loop through list`).
+- **Keep only non-obvious *why*:** Document external platform quirks, protocol edge cases, or non-obvious mathematical invariants that the code itself cannot express.
+- **No phase markers in tests:** Test scripts get zero phase narration (`// Phase 1: setup`). Descriptive assertion messages document the step.
+
+---
+
 ## Playbook Router
 
 Every incoming task maps to a structured playbook. The playbook steps are loaded as a concrete checklist before execution begins:
@@ -126,3 +183,6 @@ Every incoming task maps to a structured playbook. The playbook steps are loaded
 | **UI Parity** | Visual bug, layout refinement, design match | `playbooks/ui-parity.md` |
 | **Autonomous Run** | Long-running task with automated gates | `playbooks/autonomous-run.md` |
 | **Shipping** | Final verification & clean PR delivery | `playbooks/shipping.md` |
+
+### The `figure-it-out` Fallback
+If an incoming request is novel, cross-cutting, or does not match any bundled playbook, do not drop engineering rigor. Route to the **figure-it-out** playbook to synthesize a bespoke, verifiable checklist before touching code.

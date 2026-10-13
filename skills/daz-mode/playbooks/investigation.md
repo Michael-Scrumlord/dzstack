@@ -2,7 +2,7 @@
 
 **You own the answer. Plan, inspect, explain.**
 
-Investigation requests are strictly read-only. They produce a cited explanation, architectural map, or trade-off recommendation—never an unprompted code change.
+Investigation requests are strictly read-only. They produce a cited explanation, architectural map, or trade-off recommendation: never an unprompted code change.
 
 ---
 

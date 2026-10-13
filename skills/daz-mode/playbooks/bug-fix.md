@@ -2,7 +2,7 @@
 
 **You own this task. Plan, review, verify.** Delegate implementation to subagents only when necessary, and stay in the lead.
 
-Be scientific. Every shipped line traces to runtime evidence. Belt-and-suspenders code that "might help" is a hypothesis, not a fix; it does not ship. When evidence refutes a hypothesis, revert the changes immediately. The smallest change that runtime evidence justifies ships—nothing more.
+Be scientific. Every shipped line traces to runtime evidence. Belt-and-suspenders code that "might help" is a hypothesis, not a fix; it does not ship. When evidence refutes a hypothesis, revert the changes immediately. The smallest change that runtime evidence justifies ships: nothing more.
 
 ---
 

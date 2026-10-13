@@ -63,10 +63,10 @@ Identify the model slugs available in your current harness session:
 
 ### 2. Select Reasoning Budget
 Prompt the user to select an operational reasoning budget:
-- `unlimited — keep max`: Maximum reasoning effort for all thinking models.
-- `large — xhigh reasoning`: High reasoning effort with reasonable token caps.
-- `medium — high reasoning`: Balanced performance for day-to-day engineering.
-- `small — medium reasoning`: Low/medium reasoning effort optimized for speed and maximum token conservation.
+- `unlimited : keep max`: Maximum reasoning effort for all thinking models.
+- `large : xhigh reasoning`: High reasoning effort with reasonable token caps.
+- `medium : high reasoning`: Balanced performance for day-to-day engineering.
+- `small : medium reasoning`: Low/medium reasoning effort optimized for speed and maximum token conservation.
 
 Applying a budget adjusts effort tokens (e.g. `max` > `xhigh` > `high` > `medium`) across configured models while preserving family choices.
 

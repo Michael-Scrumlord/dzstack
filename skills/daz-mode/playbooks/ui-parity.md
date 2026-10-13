@@ -2,7 +2,7 @@
 
 **You own pixel-exact visual fidelity. The baseline is the specification; it is sacred and untouchable.** 
 
-Visual equivalence is verified by image comparison or computed DOM layout metrics—never by human eyeball or text-only assumptions.
+Visual equivalence is verified by image comparison or computed DOM layout metrics: never by human eyeball or text-only assumptions.
 
 ---
 

@@ -15,7 +15,7 @@ If the cleanup reveals a missing feature or an existing bug, split it out into i
 
 2. **Name the missing structure.**
    - Name the structure the code is missing per **principle-model-the-domain**. Boring code stays when the shape is already clear and local.
-   - The reshape must delete branches, eliminate invalid states, or simplify data flow—not add abstract indirection.
+   - The reshape must delete branches, eliminate invalid states, or simplify data flow: not add abstract indirection.
 
 3. **Name the target shape.**
    - State what the module layout, types, and call graph should be if built cleanly today (**principle-foundational-thinking**, **principle-redesign-from-first-principles**).

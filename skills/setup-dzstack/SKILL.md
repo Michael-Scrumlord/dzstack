@@ -1,11 +1,11 @@
 ---
 name: setup-dzstack
-description: Configure reasoning budgets and role-to-model assignments for Daz Mode. Writes cross-harness model settings with hierarchical inheritance and invocation roster support. Use for /setup-dzstack, /dz-budget, "configure dzstack models", or changing model choices.
+description: Configure reasoning budgets and role-to-model assignments for Daz Mode. Writes cross-harness model settings with hierarchical inheritance, modern thinking parameters, and invocation roster support. Use for /setup-dzstack, /dz-budget, "configure dzstack models", or changing model choices.
 ---
 
 # Setup dzstack
 
-Configure model roles and reasoning budgets for Daz Mode. 
+Configure model roles and reasoning budgets for Daz Mode.
 
 Settings are stored in a unified format compatible with all major agent harnesses:
 - **Project-Local Override (Optional):** `.dzstack/models.md` (takes precedence when present in a repository).
@@ -61,31 +61,56 @@ Identify the model slugs available in your current harness session:
 - **Claude Code / OpenCode / Codex:** Query CLI model lists (e.g. `opencode models`, detected tool slugs).
 - *Aliases:* `inherit-parent` and `auto` are always valid (they execute the role using the parent chat model).
 
-### 2. Select Reasoning Budget
-Prompt the user to select an operational reasoning budget:
-- `unlimited : keep max`: Maximum reasoning effort for all thinking models.
-- `large : xhigh reasoning`: High reasoning effort with reasonable token caps.
-- `medium : high reasoning`: Balanced performance for day-to-day engineering.
-- `small : medium reasoning`: Low/medium reasoning effort optimized for speed and maximum token conservation.
+### 2. Select Reasoning Budget & Thinking Parameters
+Modern frontier models (including Gemini 4 Argon, Claude 3.7 Thinking, and OpenAI o3/o4) support native reasoning effort controls (`off`, `low`, `medium`, `high`) alongside explicit token budget caps.
 
-Applying a budget adjusts effort tokens (e.g. `max` > `xhigh` > `high` > `medium`) across configured models while preserving family choices.
+Prompt the user to select an operational reasoning budget:
+- `max : high reasoning (64k tokens)`: Maximum reasoning depth for complex architectural proofs and invariants.
+- `high : standard reasoning (16k tokens)`: Default deep reasoning for tricky domain modeling and concurrency.
+- `medium : balanced reasoning (4k tokens)`: Balanced performance for day-to-day implementation and refactoring.
+- `low : fast reasoning (1k tokens)`: Minimal reasoning latency for quick fixes and routine edits.
+- `off : direct execution (0 tokens)`: Thinking disabled for instant execution and deterministic tasks.
+
+#### Thinking Parameter Mappings
+| Budget Tier | Native Parameter | Token Budget Equivalent | Best Used For |
+|---|---|---|---|
+| **`max`** | `effort: "high"` | 64,000 tokens | Multi-phase planning, core architecture, formal verification |
+| **`high`** | `effort: "high"` | 16,000 tokens | Tricky debugging, type-system design, cross-stack review |
+| **`medium`** | `effort: "medium"` | 4,000 tokens | Standard features, component authoring, refactoring |
+| **`low`** | `effort: "low"` | 1,024 tokens | Quick lint fixes, mechanical edits, unit test boilerplate |
+| **`off`** | `effort: "off"` | 0 tokens | Fast file sweeps, grep summaries, formatting |
 
 ### 3. Map Roles & Confirm
 Display the current configuration table. Prompt the user to accept as-is or adjust specific roles:
 
 | Role | Purpose | Default Family Recommendation |
 |---|---|---|
-| **`code`** | Core implementation, bug fixes, refactoring | Fast, high-throughput code model (e.g. Claude 3.5 Sonnet / Gemini 2.5 Flash / GPT-4o) |
-| **`architect`** | Domain modeling, complex concurrency, type contracts | Deep reasoning model (e.g. Claude 3.7 Thinking / o3-mini / Gemini 2.5 Pro) |
-| **`forensics`** | Code path tracing, regression archaeology | Fast search & retrieval model |
+| **`code`** | Core implementation, bug fixes, refactoring | Fast, high-throughput model (e.g. Gemini 4 Argon / Claude 3.7 / GPT-4o) |
+| **`architect`** | Domain modeling, complex concurrency, type contracts | Deep reasoning model (e.g. Gemini 4 Argon [high] / Claude 3.7 Thinking / o3) |
+| **`forensics`** | Code path tracing, regression archaeology | Fast retrieval model (e.g. Gemini 4 Argon / Claude 3.5 Haiku / Flash) |
 | **`reviewer`** | Adversarial review, breaking diffs before merge | Independent model family for unbiased second opinions |
-| **`ui-designer`** | Visual layouts, CSS, responsive states, design tokens | Multimodal vision model |
-| **`technical-writer`** | Clean documentation, commit messages, PR briefs | High-precision prose model |
-| **`fast-scout`** | Large directory scans, wide grep triage | Ultra-cheap, fast model (e.g. Flash-Lite / Haiku) |
-| **`product-strategist`**| Feature ideation, marketability, feasibility plans | Strategic reasoning model |
+| **`ui-designer`** | Visual layouts, CSS, responsive states, design tokens | Multimodal vision model (e.g. Gemini 4 Argon / Claude 3.7) |
+| **`technical-writer`** | Clean documentation, commit messages, PR briefs | High-precision prose model (e.g. Claude 3.7 / Gemini 4 Argon) |
+| **`fast-scout`** | Large directory scans, wide grep triage | Ultra-cheap, fast model (e.g. Gemini 2.5 Flash-Lite / Haiku) |
+| **`product-strategist`** | Feature ideation, marketability, feasibility plans | Strategic reasoning model (e.g. Gemini 4 Argon / Claude 3.7) |
+
+---
+
+## Prompt Prefix Stability & Context Caching Rules
+
+Modern LLMs (Gemini 4 Argon, Claude 3.7, GPT-4o) employ implicit context caching. Dynamic changes at the head of a prompt invalidate cached token prefixes across all turns and subagent calls, significantly increasing latency and API costs.
+
+Follow these rules when constructing harness prompts and subagent instructions:
+
+1. **Anchor Invariant Prefixes at the Head:** Keep system prompts, persona directives, harness rules, and project standards at the very beginning of the prompt. Never insert timestamps, random session IDs, or volatile memory into the header.
+2. **Push Dynamic State to the Tail:** Place working directory file listings, transient git diffs, current test output, and user query context strictly at the prompt tail.
+3. **Align Subagent Headers:** All subagents spawned in a wave must share the identical system prefix template as the parent harness. This guarantees that subagent invocations hit warm prefix cache windows instantly.
+4. **Stable Formatting:** Preserve exact whitespace, line breaks, and heading order in persistent prompts. Minor token discrepancies break prefix match algorithms.
+
+---
 
 ### 4. Validate & Write Configuration
-Ensure all chosen slugs exist in the detected set (or use `inherit-parent` / `auto`). 
+Ensure all chosen slugs exist in the detected set (or use `inherit-parent` / `auto`).
 
 Write the configuration file:
 - If in a project repository with a `.dzstack/` directory, update `.dzstack/models.md`.
@@ -101,7 +126,7 @@ alwaysApply: true
 # dzstack model configuration.
 # Child roles inherit from parent roles (code, architect, forensics, reviewer) if omitted.
 # `inherit-parent` or `auto` runs that role on the parent chat model.
-# budget: large (xhigh)
+# budget: high (effort: high, tokens: 16000)
 code: inherit-parent
 architect: inherit-parent
 forensics: inherit-parent

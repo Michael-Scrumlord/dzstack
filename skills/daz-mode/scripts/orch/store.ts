@@ -25,19 +25,33 @@ export type Verdict =
   | "verifier-blocked"
   | "verifier-failed";
 
+// Pattern: Branded Primitive - Brand semantic primitives to prevent accidental substitution
+export type UnitId = string & { readonly __brand: "UnitId" };
+export type BranchName = string & { readonly __brand: "BranchName" };
+export type CommitSha = string & { readonly __brand: "CommitSha" };
+export type PrNumberString = string & { readonly __brand: "PrNumberString" };
+
+export type UnitState =
+  | "pending"
+  | "in-progress"
+  | "done"
+  | "blocked"
+  | "failed"
+  | "dropped";
+
 export interface Unit {
-  readonly id: string;
+  readonly id: UnitId;
   readonly track: string;
-  readonly state: string;
-  readonly branch: string;
-  readonly pr: string;
-  readonly sha: string;
+  readonly state: UnitState;
+  readonly branch: BranchName;
+  readonly pr: PrNumberString;
+  readonly sha: CommitSha;
   readonly brief: string;
 }
 
 export interface LedgerEntry {
-  readonly pr: string;
-  readonly sha: string;
+  readonly pr: PrNumberString;
+  readonly sha: CommitSha;
   readonly verdict: Verdict;
   readonly evidence: string;
   readonly verifier: string;
@@ -122,7 +136,7 @@ export interface AddUnitParams {
 
 export interface SetUnitParams {
   readonly id: string;
-  readonly state: string;
+  readonly state: UnitState | string;
   readonly branch?: string;
   readonly pr?: number;
   readonly sha?: string;
@@ -293,6 +307,46 @@ export function parseVerdict(value: string): Verdict {
   return verdict;
 }
 
+export function asUnitId(value: string): UnitId {
+  return value as UnitId;
+}
+
+export function asBranchName(value: string): BranchName {
+  return value as BranchName;
+}
+
+export function asCommitSha(value: string): CommitSha {
+  return value as CommitSha;
+}
+
+export function asPrNumberString(value: string): PrNumberString {
+  return value as PrNumberString;
+}
+
+export function unitStateOrNull(value: string): UnitState | null {
+  switch (value) {
+    case "pending":
+    case "in-progress":
+    case "done":
+    case "blocked":
+    case "failed":
+    case "dropped":
+      return value;
+    default:
+      return null;
+  }
+}
+
+export function parseUnitState(value: string): UnitState {
+  const state = unitStateOrNull(value);
+  if (state === null) {
+    throw new UserError(
+      "state must be pending, in-progress, done, blocked, failed, or dropped"
+    );
+  }
+  return state;
+}
+
 function cleanCell(value: string): string {
   const cleaned = value.replace(/[\t\n\r]/g, " ");
   return /^[=+\-@]/.test(cleaned) ? `'${cleaned}` : cleaned;
@@ -391,16 +445,18 @@ async function acquireLock(
   };
 
   const takeOver = async (): Promise<void> => {
-    await unlink(path);
+    // Pattern: Atomic Lock Takeover - Replace stale lock via atomic rename to eliminate TOCTOU gap
+    const temporary = join(
+      store,
+      `.${LOCK_FILE}.${pid}.${randomUUID()}.tmp`
+    );
     try {
-      await create();
-    } catch (retryError) {
-      if (errorCode(retryError) === "EEXIST") {
-        const retryHolder =
-          (await readFile(path, "utf8")).trim() || "unknown";
-        throw new UserError(`store lock held by pid ${retryHolder}`);
-      }
-      throw retryError;
+      const handle = await open(temporary, "wx");
+      await handle.writeFile(`${pid}\n`);
+      await handle.close();
+      await rename(temporary, path);
+    } finally {
+      await rm(temporary, { force: true });
     }
   };
 
@@ -471,15 +527,22 @@ async function writeTsv(
 
 async function readUnits(store: string): Promise<readonly Unit[]> {
   return (await readTsv(join(store, "units.tsv"), UNIT_HEADER, 7)).map(
-    (row) => ({
-      id: row[0] ?? "",
-      track: row[1] ?? "",
-      state: row[2] ?? "",
-      branch: row[3] ?? "",
-      pr: row[4] ?? "",
-      sha: row[5] ?? "",
-      brief: row[6] ?? "",
-    })
+    (row) => {
+      const rawState = row[2] ?? "";
+      const state = unitStateOrNull(rawState);
+      if (state === null) {
+        throw new UserError(`units.tsv has invalid state ${rawState}`);
+      }
+      return {
+        id: asUnitId(row[0] ?? ""),
+        track: row[1] ?? "",
+        state,
+        branch: asBranchName(row[3] ?? ""),
+        pr: asPrNumberString(row[4] ?? ""),
+        sha: asCommitSha(row[5] ?? ""),
+        brief: row[6] ?? "",
+      };
+    }
   );
 }
 
@@ -512,8 +575,8 @@ async function readLedger(store: string): Promise<readonly LedgerEntry[]> {
         throw new UserError(`ledger.tsv has invalid verdict ${rawVerdict}`);
       }
       return {
-        pr: row[0] ?? "",
-        sha: row[1] ?? "",
+        pr: asPrNumberString(row[0] ?? ""),
+        sha: asCommitSha(row[1] ?? ""),
         verdict,
         evidence: row[3] ?? "",
         verifier: row[4] ?? "",
@@ -1103,7 +1166,7 @@ function graphitePullRequest({
   return parseGtPullRequest({ branch, detail: rows[0] ?? "" });
 }
 
-function graphiteFrontier(repo: string): readonly GtFrontierEntry[] {
+function tryGraphiteFrontier(repo: string): readonly GtFrontierEntry[] | null {
   let raw: string;
   try {
     raw = execFileSync(
@@ -1116,10 +1179,8 @@ function graphiteFrontier(repo: string): readonly GtFrontierEntry[] {
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
-  } catch (error) {
-    throw new UserError(
-      `gt log short --stack --reverse failed: ${errorMessage(error)}`
-    );
+  } catch {
+    return null;
   }
   const result = parseGtBranches(raw).map((branch) => ({
     branches: branch,
@@ -1129,6 +1190,80 @@ function graphiteFrontier(repo: string): readonly GtFrontierEntry[] {
     throw new UserError("gt info output contains duplicate pull requests");
   }
   return result;
+}
+
+function githubFrontier(repo: string): readonly FrontierPr[] {
+  // Pattern: Fallback Strategy - Resolve PR stack from GitHub CLI when Graphite is absent
+  let raw: string;
+  try {
+    raw = execFileSync(
+      "gh",
+      [
+        "pr",
+        "list",
+        "--state",
+        "all",
+        "--limit",
+        "100",
+        "--json",
+        "number,headRefName,headRefOid,state",
+      ],
+      {
+        cwd: repo,
+        encoding: "utf8",
+        env: { ...process.env, NO_COLOR: "1" },
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+  } catch (error) {
+    throw new UserError(
+      `frontier resolution failed: neither gt nor gh could query PRs in ${repo}: ${errorMessage(error)}`
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new UserError(`gh pr list output is not valid JSON in ${repo}`);
+  }
+  if (!isUnknownArray(parsed)) {
+    throw new UserError(`gh pr list output must be an array in ${repo}`);
+  }
+  const prs: FrontierPr[] = [];
+  for (const item of parsed) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const prNum = item.number;
+    const branch = item.headRefName;
+    const sha = item.headRefOid;
+    const ghState =
+      typeof item.state === "string" ? item.state.toUpperCase() : "";
+    let state: FrontierPrState = "OPEN";
+    if (ghState === "MERGED") {
+      state = "MERGED";
+    } else if (ghState === "CLOSED") {
+      state = "CLOSED";
+    }
+    if (
+      typeof prNum === "number" &&
+      Number.isSafeInteger(prNum) &&
+      prNum > 0 &&
+      typeof branch === "string" &&
+      branch.length > 0 &&
+      typeof sha === "string" &&
+      sha.length > 0
+    ) {
+      prs.push({
+        pr: prNum,
+        branches: branch,
+        sha,
+        state,
+      });
+    }
+  }
+  prs.sort((a, b) => a.pr - b.pr);
+  return prs;
 }
 
 function branchSha({
@@ -1159,10 +1294,15 @@ function branchSha({
 }
 
 function resolveFrontier(repo: string): readonly FrontierPr[] {
-  return graphiteFrontier(repo).map((row) => ({
-    ...row,
-    sha: branchSha({ branch: row.branches, repo }),
-  }));
+  // Pattern: Fallback Strategy - Try Graphite if present, fall back to GitHub CLI (gh)
+  const gtEntries = tryGraphiteFrontier(repo);
+  if (gtEntries !== null) {
+    return gtEntries.map((row) => ({
+      ...row,
+      sha: branchSha({ branch: row.branches, repo }),
+    }));
+  }
+  return githubFrontier(repo);
 }
 
 function validateFrontierPin({
@@ -1184,14 +1324,14 @@ function validateFrontierPin({
   const extra = actual.filter((pr) => !expectedSet.has(pr));
   const drift: string[] = [];
   if (missing.length > 0) {
-    drift.push(`missing from gt: ${missing.join(",")}`);
+    drift.push(`missing from stack: ${missing.join(",")}`);
   }
   if (extra.length > 0) {
-    drift.push(`extra in gt: ${extra.join(",")}`);
+    drift.push(`extra in stack: ${extra.join(",")}`);
   }
   if (missing.length === 0 && extra.length === 0) {
     drift.push(
-      `order differs: expected ${expected.join(",")}; gt ${actual.join(",")}`
+      `order differs: expected ${expected.join(",")}; stack ${actual.join(",")}`
     );
   }
   throw new UserError(`frontier pin mismatch: ${drift.join("; ")}`);
@@ -1245,12 +1385,12 @@ export function openStore(
       add: async (params) => {
         await beginWrite();
         const row: Unit = {
-          id: requiredCell(params.id, "unit id"),
+          id: asUnitId(requiredCell(params.id, "unit id")),
           track: requiredCell(params.track, "track"),
           state: "pending",
-          branch: "",
-          pr: "",
-          sha: "",
+          branch: asBranchName(""),
+          pr: asPrNumberString(""),
+          sha: asCommitSha(""),
           brief:
             params.brief === undefined
               ? ""
@@ -1267,7 +1407,7 @@ export function openStore(
       set: async (params) => {
         await beginWrite();
         const id = requiredCell(params.id, "unit id");
-        const state = requiredCell(params.state, "state");
+        const state = parseUnitState(requiredCell(params.state, "state"));
         const rows = [...(await readUnits(store))];
         const index = rows.findIndex((unit) => unit.id === id);
         const old = rows[index];
@@ -1280,15 +1420,15 @@ export function openStore(
           branch:
             params.branch === undefined
               ? old.branch
-              : requiredCell(params.branch, "branch"),
+              : asBranchName(requiredCell(params.branch, "branch")),
           pr:
             params.pr === undefined
               ? old.pr
-              : String(positiveInteger(params.pr, "PR")),
+              : asPrNumberString(String(positiveInteger(params.pr, "PR"))),
           sha:
             params.sha === undefined
               ? old.sha
-              : requiredCell(params.sha, "SHA"),
+              : asCommitSha(requiredCell(params.sha, "SHA")),
         };
         rows[index] = row;
         await saveUnits(store, rows);
@@ -1333,8 +1473,8 @@ export function openStore(
         await beginWrite();
         const verdict = parseVerdict(params.verdict);
         const row: LedgerEntry = {
-          pr: String(positiveInteger(params.pr, "PR")),
-          sha: requiredCell(params.sha, "SHA"),
+          pr: asPrNumberString(String(positiveInteger(params.pr, "PR"))),
+          sha: asCommitSha(requiredCell(params.sha, "SHA")),
           verdict,
           evidence: requiredCell(params.evidence, "evidence"),
           verifier:
@@ -1357,8 +1497,8 @@ export function openStore(
       },
       check: async (params) => {
         ensureOpen();
-        const pr = String(positiveInteger(params.pr, "PR"));
-        const sha = requiredCell(params.sha, "SHA");
+        const pr = asPrNumberString(String(positiveInteger(params.pr, "PR")));
+        const sha = asCommitSha(requiredCell(params.sha, "SHA"));
         const row = (await readLedger(store)).find(
           (value) => value.pr === pr && value.sha === sha
         );

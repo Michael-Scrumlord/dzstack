@@ -159,6 +159,50 @@ esac
   }
 }
 
+async function withFakeGh<T>({
+  directory,
+  operation,
+  output,
+}: {
+  directory: string;
+  operation: (outputPath: string) => Promise<T>;
+  output: string;
+}): Promise<T> {
+  const bin = join(directory, "bin");
+  const outputPath = join(directory, "gh-output.txt");
+  await mkdir(bin, { recursive: true });
+  await writeFile(outputPath, output);
+  const gh = join(bin, "gh");
+  await writeFile(
+    gh,
+    `#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  "pr list --state all --limit 100 --json number,headRefName,headRefOid,state")
+    cat "${outputPath}"
+    ;;
+  *)
+    printf 'unexpected gh arguments: %s\\n' "$*" >&2
+    exit 2
+    ;;
+esac
+`
+  );
+  await chmod(gh, 0o755);
+
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${bin}:${originalPath ?? ""}`;
+  try {
+    return await operation(outputPath);
+  } finally {
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+  }
+}
+
 function runCli(
   args: readonly string[],
   env: Readonly<Record<string, string | undefined>> = process.env
@@ -458,7 +502,7 @@ describe("Store", () => {
             prs: [10, 11, 12],
           })
         ).rejects.toThrow(
-          "frontier pin mismatch: missing from gt: 12; extra in gt: 13"
+          "frontier pin mismatch: missing from stack: 12; extra in stack: 13"
         );
         await expect(
           store.frontier.set({
@@ -466,7 +510,7 @@ describe("Store", () => {
             prs: [13, 10, 11],
           })
         ).rejects.toThrow(
-          "frontier pin mismatch: order differs: expected 13,10,11; gt 10,13,11"
+          "frontier pin mismatch: order differs: expected 13,10,11; stack 10,13,11"
         );
         await expect(
           store.frontier.set({
@@ -476,6 +520,56 @@ describe("Store", () => {
         ).rejects.toThrow("--prs must not contain duplicates");
       },
     });
+  });
+
+  it("resolves the GitHub frontier when Graphite is absent", async () => {
+    const { directory, store } = await initializedStore();
+    const stack = await makeGitStack(directory);
+    const output = JSON.stringify([
+      {
+        number: 10,
+        headRefName: "stack/merged",
+        headRefOid: stack.mergedSha,
+        state: "MERGED",
+      },
+      {
+        number: 11,
+        headRefName: "stack/open",
+        headRefOid: stack.openSha,
+        state: "OPEN",
+      },
+    ]);
+
+    await withFakeGh({
+      directory,
+      output,
+      operation: async () => {
+        const frontier = await store.frontier.set({ repo: stack.repo });
+        expect(frontier.prs).toHaveLength(2);
+        expect(frontier.prs[0]).toEqual({
+          pr: 10,
+          branches: "stack/merged",
+          sha: stack.mergedSha,
+          state: "MERGED",
+        });
+        expect(frontier.prs[1]).toEqual({
+          pr: 11,
+          branches: "stack/open",
+          sha: stack.openSha,
+          state: "OPEN",
+        });
+      },
+    });
+  });
+
+  it("rejects invalid unit state according to domain constraints", async () => {
+    const { store } = await initializedStore();
+    await store.units.add({ id: "u1", track: "build" });
+    await expect(
+      store.units.set({ id: "u1", state: "bogus-state" })
+    ).rejects.toThrow(
+      "state must be pending, in-progress, done, blocked, failed, or dropped"
+    );
   });
 
   it("rejects unparseable Graphite output loudly", async () => {

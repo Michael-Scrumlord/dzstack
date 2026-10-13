@@ -167,6 +167,7 @@ Write the reply clean as you draft it. Avoid conversational fluff and AI formatt
 - **Purge narration:** Delete comments that merely restate what code does (`// set user id`, `// loop through list`).
 - **Keep only non-obvious *why*:** Document external platform quirks, protocol edge cases, or non-obvious mathematical invariants that the code itself cannot express.
 - **No phase markers in tests:** Test scripts get zero phase narration (`// Phase 1: setup`). Descriptive assertion messages document the step.
+- **Educational pattern tags:** When introducing a structural design pattern, document it with a single-line tag: `// Pattern: <Canonical Name> - <1-line rationale>`.
 
 ---
 

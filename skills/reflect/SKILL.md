@@ -38,7 +38,7 @@ Take the newest candidates first. Confirm a candidate by finding the conversatio
 
 One message, three `Task` calls, `subagent_type: generalPurpose`, explicit `model:` on each, agent mode (`readonly: false`). Reviewers need MCP access for context lookups (tickets, chat threads, observability traces referenced in the transcript). Readonly strips MCPs.
 
-**Other harnesses.** The spawns in this skill use Cursor's `Task` tool. In another harness, use its subagent tool: `Agent` in Claude Code (`subagent_type: general-purpose`), `task` in OpenCode (`subagent_type: general`), `spawn_agent` in Codex. Keep the prompt and the model. Drop parameters your tool doesn't have. If your harness has no subagent tool, as in Pi without an extension, run each role yourself, one after another. "Your configured ... model" means the matching line in the dzstack settings file. Cursor loads `~/.cursor/rules/daz-models.mdc` automatically. In other harnesses, read `~/.agents/daz-models.md` if it exists.
+**Other harnesses.** The spawns in this skill use Cursor's `Task` tool. In another harness, use its subagent tool: `invoke_subagent` in Antigravity (`TypeName: "daz-agent"` or `"self"`), `Agent` in Claude Code (`subagent_type: general-purpose`), `task` in OpenCode (`subagent_type: general`), `spawn_agent` in Codex. Keep the prompt and the model. Drop parameters your tool doesn't have. If your harness has no subagent tool or runs single-threaded, run each role yourself sequentially. "Your configured ... model" means the matching line in the dzstack settings file (`~/.cursor/rules/daz-models.mdc` in Cursor, `~/.agents/daz-models.md` in other harnesses).
 
 | Lens | `model` | Prompt template |
 |---|---|---|

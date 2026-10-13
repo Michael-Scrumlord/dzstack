@@ -28,6 +28,7 @@
      - *Zero dependency inflation:* Prefer standard library and existing project utilities over new external packages.
      - *Lean modules:* Keep files cohesive and short.
      - *Purge comment narration:* Keep comments only for non-obvious platform/vendor constraints.
+     - *Educational Pattern Documentation:* When introducing a structural design pattern, document it with a single-line tag: `// Pattern: <Canonical Name> - <1-line rationale>`.
    - **Commit in atomic, verifiable units:** Stage small, logically cohesive commits. Do not litter git history with messy WIP commits that trigger redundant CI runs.
 
 5. **Mandatory UI/UX Verification (For Frontend Features).**

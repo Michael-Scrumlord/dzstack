@@ -16,7 +16,7 @@ Be scientific. Every shipped line traces to runtime evidence. Belt-and-suspender
 
 2. **Sequential, token-conscious forensics.**
    - Do not spawn parallel subagents to investigate the same context.
-   - Perform a single-pass sequential investigation:
+   - Run a single-pass sequential investigation:
      1. Trace the execution path through affected code.
      2. Inspect recent git blame/commit history on those lines to identify regression triggers.
    - Formulate candidate hypotheses. Eliminate them one by one using targeted runtime logs or execution assertions. Do not guess.

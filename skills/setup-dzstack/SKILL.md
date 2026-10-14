@@ -58,13 +58,17 @@ product-strategist (Specialist: ideation, feasibility, marketability, roadmaps)
 ### 1. Detect Available Models
 Identify the model slugs available in your current harness session:
 - **Antigravity / Cursor:** Inspect detected environment models or active session models.
-- **Claude Code / OpenCode / Codex:** Query CLI model lists (e.g. `opencode models`, detected tool slugs).
+- **Claude Code:** the `Agent` tool's `model` takes a fixed alias set: `opus`, `sonnet`, `haiku`, `fable` (or omit it to inherit the parent). Use those, never model generations or dated ids.
+- **Codex / OpenCode:** query the CLI's model list (e.g. `opencode models`); Codex usually runs roles on the chat model (`inherit-parent`).
 - *Aliases:* `inherit-parent` and `auto` are always valid (they execute the role using the parent chat model).
 
-### 2. Select Reasoning Budget & Thinking Parameters
+### 2. Start From What Exists (don't ask again)
+Look for an existing configuration first, in this order: `.dzstack/models.md`, `~/.agents/daz-models.md`, then older stacks' files (`~/.claude/pstack-models.md`, `~/.claude/cstack-models.md`). If one exists, derive the dzstack file from it (map its roles onto the roster below, carry over every model restriction), show the result, and write it without prompting: Never Block on the Human. Ask only when nothing exists or a role can't be mapped.
+
+### 2b. Select Reasoning Budget & Thinking Parameters
 Current frontier models support native reasoning effort controls (`off`, `low`, `medium`, `high`) alongside explicit token budget caps.
 
-Prompt the user to select an operational reasoning budget:
+When nothing exists to derive from, ask once for an operational reasoning budget:
 - `max : high reasoning (64k tokens)`: Maximum reasoning depth for complex architectural proofs and invariants.
 - `high : standard reasoning (16k tokens)`: Default deep reasoning for tricky domain modeling and concurrency.
 - `medium : balanced reasoning (4k tokens)`: Balanced performance for day-to-day implementation and refactoring.
@@ -80,8 +84,10 @@ Prompt the user to select an operational reasoning budget:
 | **`low`** | `effort: "low"` | 1,024 tokens | Quick lint fixes, mechanical edits, unit test boilerplate |
 | **`off`** | `effort: "off"` | 0 tokens | Fast file sweeps, grep summaries, formatting |
 
+In **Claude Code** the `Agent` tool's `effort` takes `low`, `medium`, `high`, `xhigh` or `max`, and only when the user or the model file asks for it explicitly: map `low` → `low`, `medium` → `medium`, `high` → `high`, `max` → `max`, and leave `off` unset (the agent runs at its default).
+
 ### 3. Map Roles & Confirm
-Display the current configuration table. Prompt the user to accept as-is or adjust specific roles:
+Display the configuration table (derived in step 2, or the defaults below). Prompt only if it was not derived from an existing file:
 
 | Role | Purpose | Default Family Recommendation |
 |---|---|---|
@@ -110,7 +116,7 @@ Follow these rules when constructing harness prompts and subagent instructions:
 ---
 
 ### 4. Validate & Write Configuration
-Ensure all chosen slugs exist in the detected set (or use `inherit-parent` / `auto`).
+Ensure all chosen slugs exist in the detected set (or use `inherit-parent` / `auto`), and that none is on the deny list.
 
 Write the configuration file:
 - If in a project repository with a `.dzstack/` directory, update `.dzstack/models.md`.
@@ -129,6 +135,7 @@ alwaysApply: true
 # One file serves every harness, and slugs differ per harness: write `role: claude=sonnet, codex=inherit-parent`.
 # A harness with no entry of its own uses inherit-parent.
 # budget: high (effort: high, tokens: 16000)
+# deny: fable, claude-fable-*      # models never to assign, whatever a role says (cost, policy); globs allowed
 code: inherit-parent
 architect: inherit-parent
 forensics: inherit-parent

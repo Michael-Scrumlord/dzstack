@@ -26,6 +26,8 @@ The Principles section below grounds every trigger. In your reply, name each pri
 - Before writing implementation logic, define the domain model, types, or state machine per **principle-model-the-domain**. Never start with branching `if/else` logic.
 
 ### 3. Domain-Isolated Subagents (Token Shield)
+
+**Token-conservation mode** (the user asks for it, or the model file says `# budget: low`): one thread, no subagent fan-out and no multi-model review (single-model defaults for `interrogate` and `arena`), excerpts and summaries instead of whole files or logs, and the shortest reply that carries the result. Everything else in this skill still applies.
 - Subagents must be strictly bounded by domain or file path. Never dump whole-repo context into subagents.
 - Subagents receive only the relevant type contract and target files.
 - Subagents do not read each other's transcripts. The parent agent receives only compact diffs and distilled test results.

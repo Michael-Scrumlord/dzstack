@@ -62,7 +62,7 @@ Identify the model slugs available in your current harness session:
 - *Aliases:* `inherit-parent` and `auto` are always valid (they execute the role using the parent chat model).
 
 ### 2. Select Reasoning Budget & Thinking Parameters
-Modern frontier models (including Gemini 4 Argon, Claude 3.7 Thinking, and OpenAI o3/o4) support native reasoning effort controls (`off`, `low`, `medium`, `high`) alongside explicit token budget caps.
+Current frontier models support native reasoning effort controls (`off`, `low`, `medium`, `high`) alongside explicit token budget caps.
 
 Prompt the user to select an operational reasoning budget:
 - `max : high reasoning (64k tokens)`: Maximum reasoning depth for complex architectural proofs and invariants.
@@ -85,20 +85,20 @@ Display the current configuration table. Prompt the user to accept as-is or adju
 
 | Role | Purpose | Default Family Recommendation |
 |---|---|---|
-| **`code`** | Core implementation, bug fixes, refactoring | Fast, high-throughput model (e.g. Gemini 4 Argon / Claude 3.7 / GPT-4o) |
-| **`architect`** | Domain modeling, complex concurrency, type contracts | Deep reasoning model (e.g. Gemini 4 Argon [high] / Claude 3.7 Thinking / o3) |
-| **`forensics`** | Code path tracing, regression archaeology | Fast retrieval model (e.g. Gemini 4 Argon / Claude 3.5 Haiku / Flash) |
+| **`code`** | Core implementation, bug fixes, refactoring | Fast, high-throughput model (e.g. Claude Code `sonnet`; Codex: the chat model) |
+| **`architect`** | Domain modeling, complex concurrency, type contracts | Deep reasoning model (e.g. Claude Code `opus`; Codex: the chat model at high effort) |
+| **`forensics`** | Code path tracing, regression archaeology | Fast retrieval model (e.g. Claude Code `sonnet`) |
 | **`reviewer`** | Adversarial review, breaking diffs before merge | Independent model family for unbiased second opinions |
-| **`ui-designer`** | Visual layouts, CSS, responsive states, design tokens | Multimodal vision model (e.g. Gemini 4 Argon / Claude 3.7) |
-| **`technical-writer`** | Clean documentation, commit messages, PR briefs | High-precision prose model (e.g. Claude 3.7 / Gemini 4 Argon) |
-| **`fast-scout`** | Large directory scans, wide grep triage | Ultra-cheap, fast model (e.g. Gemini 2.5 Flash-Lite / Haiku) |
-| **`product-strategist`** | Feature ideation, marketability, feasibility plans | Strategic reasoning model (e.g. Gemini 4 Argon / Claude 3.7) |
+| **`ui-designer`** | Visual layouts, CSS, responsive states, design tokens | Multimodal vision model (e.g. Claude Code `opus`) |
+| **`technical-writer`** | Clean documentation, commit messages, PR briefs | High-precision prose model (e.g. Claude Code `opus`) |
+| **`fast-scout`** | Large directory scans, wide grep triage | Ultra-cheap, fast model (e.g. Claude Code `haiku`) |
+| **`product-strategist`** | Feature ideation, marketability, feasibility plans | Strategic reasoning model (e.g. Claude Code `opus`) |
 
 ---
 
 ## Prompt Prefix Stability & Context Caching Rules
 
-Modern LLMs (Gemini 4 Argon, Claude 3.7, GPT-4o) employ implicit context caching. Dynamic changes at the head of a prompt invalidate cached token prefixes across all turns and subagent calls, significantly increasing latency and API costs.
+Current models cache prompt prefixes. Dynamic changes at the head of a prompt invalidate cached token prefixes across all turns and subagent calls, significantly increasing latency and API costs.
 
 Follow these rules when constructing harness prompts and subagent instructions:
 
@@ -126,6 +126,8 @@ alwaysApply: true
 # dzstack model configuration.
 # Child roles inherit from parent roles (code, architect, forensics, reviewer) if omitted.
 # `inherit-parent` or `auto` runs that role on the parent chat model.
+# One file serves every harness, and slugs differ per harness: write `role: claude=sonnet, codex=inherit-parent`.
+# A harness with no entry of its own uses inherit-parent.
 # budget: high (effort: high, tokens: 16000)
 code: inherit-parent
 architect: inherit-parent

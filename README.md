@@ -23,6 +23,13 @@ Token-efficient, high-rigor agent engineering stack for Cursor, Claude Code, Ant
 
 ## Quick Start
 
+### 0. Install (one clone, every harness)
+```bash
+git clone <this repo> ~/dzstack      # Michael's machines: gitea:sirius/dzstack.git
+~/dzstack/scripts/link.sh            # links skills into ~/.claude/skills and ~/.agents/skills (Codex), agents into ~/.claude/agents
+```
+`git pull` in the clone updates every harness. Run `link.sh` again after adding or renaming a skill. Cursor installs from `.cursor-plugin/`.
+
 ### 1. Configure Models
 Run `/setup-dzstack` to inspect or generate your model mapping file (`~/.cursor/rules/daz-models.mdc` or `~/.agents/daz-models.md`). Roles inherit hierarchically so you only need to configure primary models:
 ```
@@ -45,6 +52,8 @@ Activate the core engineering workflow in any session:
 - `skills/daz-mode/SKILL.md`: Main execution harness, non-negotiables, cross-harness adapters, and task router.
 - `skills/setup-dzstack/SKILL.md`: Role-to-model configuration and token budget gates.
 - `skills/figure-it-out/SKILL.md`: Bespoke playbook generator for novel or cross-cutting engineering initiatives.
+- `skills/daz-mode/references/forges.md`: One place that maps PR, CI and merge steps to GitHub (`gh`), Gitea (MCP or REST) and Origin.
+- `agents/daz-agent.md`: The subagent that runs in Daz Mode. `agents/comment-sicko.md`: A comment-purging reviewer.
 
 ### 2. Playbooks (`skills/daz-mode/playbooks/`)
 - `bug-fix.md`: Scientific defect reproduction, narrowest patch, and empirical proof.
@@ -53,7 +62,7 @@ Activate the core engineering workflow in any session:
 - `investigation.md`: Read-only architectural forensics and trade-off matrices.
 - `refactoring.md`: Deterministic behavior preservation with negative LoC balance.
 - `ui-parity.md`: Visual equivalence verified by image or computed DOM metrics.
-- `shipping.md`: Native GitHub CLI (`gh`) shipping, patch-id validation, and contiguous stack landing.
+- `shipping.md`: Forge-neutral shipping (`references/forges.md`), patch-id validation, and contiguous stack landing.
 - `opening-a-pr.md`: Conventional commits, 40-line briefing limit, and structured evidence.
 - `autonomous-run.md`: Unattended loop execution driven to a verifiable exit predicate.
 - `session-pickup.md`: Cold resume from transcripts without re-deriving completed work.
@@ -99,6 +108,16 @@ Activate the core engineering workflow in any session:
 - `skills/technical-writing/SKILL.md`: Diátaxis-structured technical documentation and RFCs.
 - `skills/typescript-best-practices/SKILL.md`: Strict TypeScript types, branded types, and zero-overhead invariants.
 
-### 6. The 23 Principle Skills (`skills/principle-*/`)
+### 6. The 26 Principle Skills (`skills/principle-*/`)
 Executable leaf skills grounding architectural and operational decisions:
-`principle-attack-the-premise`, `principle-boundary-discipline`, `principle-build-the-lever`, `principle-encode-lessons-in-structure`, `principle-exhaust-the-design-space`, `principle-experience-first`, `principle-fix-root-causes`, `principle-foundational-thinking`, `principle-guard-the-context-window`, `principle-laziness-protocol`, `principle-make-operations-idempotent`, `principle-migrate-callers-then-delete-legacy-apis`, `principle-minimize-reader-load`, `principle-model-the-domain`, `principle-never-block-on-the-human`, `principle-outcome-oriented-execution`, `principle-prove-it-works`, `principle-redesign-from-first-principles`, `principle-separate-before-serializing-shared-state`, `principle-sequence-verifiable-units`, `principle-subtract-before-you-add`, `principle-test-behavior-not-implementation`, `principle-type-system-discipline`.
+`principle-attack-the-premise`, `principle-boundary-discipline`, `principle-build-the-lever`, `principle-derive-state-never-duplicate-it`, `principle-encode-lessons-in-structure`, `principle-exhaust-the-design-space`, `principle-experience-first`, `principle-fail-loud-and-fast`, `principle-fix-root-causes`, `principle-foundational-thinking`, `principle-guard-the-context-window`, `principle-laziness-protocol`, `principle-make-operations-idempotent`, `principle-migrate-callers-then-delete-legacy-apis`, `principle-minimize-reader-load`, `principle-model-the-domain`, `principle-never-block-on-the-human`, `principle-outcome-oriented-execution`, `principle-prove-it-works`, `principle-redesign-from-first-principles`, `principle-separate-before-serializing-shared-state`, `principle-sequence-verifiable-units`, `principle-subtract-before-you-add`, `principle-test-behavior-not-implementation`, `principle-type-system-discipline`, `principle-zero-dependency-inflation`.
+
+---
+
+## Maintaining dzstack
+
+- **Structure check:** `node scripts/check.mjs` before every commit. It fails on a skill whose `name` differs from its folder, a description over 1024 characters, a reference to a missing skill, playbook, reference file or link, a playbook the router cannot reach, a principle missing from the index, and a hidden skill without its Codex policy.
+- **Hidden skills** need both `disable-model-invocation: true` (Claude Code, Cursor) and `agents/openai.yaml` with `allow_implicit_invocation: false` (Codex). Without the second, Codex lists the skill in every session (measured: 79 listed skills before, 37 after).
+- **Scripts:** `cd skills/daz-mode/scripts && bun test orch watch-pr && bun run typecheck`.
+- **Hosting:** the source of truth is Gitea (`sirius/dzstack`); the public GitHub repository is a mirror kept by `github-publish`. Push to Gitea only.
+

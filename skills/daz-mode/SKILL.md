@@ -18,7 +18,7 @@ reminder: New task? Playbook match or rigor needed -> apply Daz Mode (print 1-li
 The Principles section below grounds every trigger. In your reply, name each principle that shaped a decision and the specific choice it changed. Cite only principles whose leaf SKILL.md you read this session.
 
 ### 1. Empirical Decisions Over Questions
-- About to `AskQuestion` on an approach, design fork, or "how should I do this" question? Classify it first:
+- About to ask the user (your harness's structured-question tool) about an approach, design fork, or "how should I do this" question? Classify it first:
   - If the answer can be observed by running code (behavior, layout, performance, edge case), **it is forbidden to ask the user**. Sketch a 10-line prototype or benchmark, execute it, and let the data decide.
   - Reserve questions solely for genuine business or product preference calls no experiment can resolve.
 
@@ -123,7 +123,7 @@ dzstack is designed to run portably across modern agent environments. Map tools 
 - **Subagents:**
   - **Cursor:** `Task` (`subagent_type: "daz-agent"`)
   - **Antigravity:** `invoke_subagent` (`TypeName: "daz-agent"` or `TypeName: "self"`)
-  - **Claude Code:** `Agent` (`subagent_type: "general-purpose"`)
+  - **Claude Code:** `Agent` (`subagent_type: "daz-agent"`, registered by `scripts/link.sh`; else `"general-purpose"`)
   - **Codex:** `spawn_agent`
   - **OpenCode:** `task` (`subagent_type: "general"`)
   - *Fallback:* If `daz-agent` is not registered, start the subagent prompt with: *"Read skills/daz-mode/SKILL.md in full, including its Principles index, before executing."*
@@ -140,7 +140,8 @@ dzstack is designed to run portably across modern agent environments. Map tools 
   - *Fallback:* Structured numbered list in chat.
 - **Skill Directories:**
   - Project level: `.cursor/skills/`, `.antigravity/skills/`, `.claude/skills/`, `.agents/skills/`
-  - User level: `~/.cursor/skills/`, `~/.claude/skills/`, `~/.agents/skills/`
+  - User level: `~/.cursor/skills/`, `~/.claude/skills/`, `~/.agents/skills/` (Codex reads `~/.agents/skills`). `scripts/link.sh` links this repo into them.
+  - Hidden skills (principles, playbook-only tools) carry both `disable-model-invocation: true` (Claude Code, Cursor) and `agents/openai.yaml` with `allow_implicit_invocation: false` (Codex). Without the second, Codex lists them in every session.
 - **MCP Integration:** Discover and leverage active Model Context Protocol (MCP) tools dynamically (browser automation, GitHub, issue trackers, observability) without hardcoded assumptions.
 
 ---
@@ -173,18 +174,36 @@ Write the reply clean as you draft it. Avoid conversational fluff and AI formatt
 
 ## Playbook Router
 
-Every incoming task maps to a structured playbook. The playbook steps are loaded as a concrete checklist before execution begins:
+Every task maps to one playbook, loaded as a checklist before execution. Pick the first row that fits.
 
-| Task Type | Intent | Playbook |
+| Task | Route when | Playbook |
 |---|---|---|
-| **Ideation & Strategy** | Feature brainstorming, feasibility, roadmap | `playbooks/ideation.md` |
-| **Bug Fix** | Defect with reproduction step | `playbooks/bug-fix.md` |
-| **Feature** | New functionality or API extension | `playbooks/feature.md` |
-| **Investigation** | Read-only questions, architectural forensics | `playbooks/investigation.md` |
-| **Refactoring** | Behavior-preserving cleanup & simplification | `playbooks/refactoring.md` |
-| **UI Parity** | Visual bug, layout refinement, design match | `playbooks/ui-parity.md` |
-| **Autonomous Run** | Long-running task with automated gates | `playbooks/autonomous-run.md` |
-| **Shipping** | Final verification & clean PR delivery | `playbooks/shipping.md` |
+| **Ideation** | Brainstorming, feasibility, roadmap; no code yet | `playbooks/ideation.md` |
+| **Investigation** | Read-only: how does X work, why is Y, should we do X or Y | `playbooks/investigation.md` |
+| **Prototype** | A throwaway sketch to settle a design or an empirical fork | `playbooks/prototype.md` |
+| **Feature** | New or changed behavior, built from a named data shape | `playbooks/feature.md` |
+| **Bug fix** | A defect to reproduce, root-cause and fix | `playbooks/bug-fix.md` |
+| **Refactoring** | Structure changes, behavior does not | `playbooks/refactoring.md` |
+| **UI parity** | Visual bug, layout match, styling migration verified by pixels or DOM metrics | `playbooks/ui-parity.md` |
+| **Perf issue** | A measured slowness, fixed once against a baseline | `playbooks/perf-issue.md` |
+| **Hillclimb** | Sustained improvement of one metric against a target, one change per measurement | `playbooks/hillclimb.md` |
+| **Runtime forensics** | Diagnose a live symptom (leak, spin, glitch) by instrumenting it; diagnosis, not fix | `playbooks/runtime-forensics.md` |
+| **Trace forensics** | Diagnose a captured profile, trace or heap snapshot; diagnosis, not fix | `playbooks/trace-forensics.md` |
+| **Multi-phase plan** | Work spanning phases or stacked PRs; the plan is the deliverable | `playbooks/multi-phase-plan.md` |
+| **Autonomous run** | One long task driven to a checkable exit predicate ("run until done") | `playbooks/autonomous-run.md` |
+| **Orchestrate** | A standing multi-day program with many PRs and subagents, one coordinator | `playbooks/orchestrate.md` |
+| **Autopilot-full** | A queue of independent PRs, each owner merges after a clean swarm verdict | `playbooks/autopilot-full.md` |
+| **Autopilot-stack** | A queue built and verified autonomously, handed over as one stack to land | `playbooks/autopilot-stack.md` |
+| **Babysit** | Get a PR or stack green: conflicts, review threads, CI ("check on PR X") | `playbooks/babysit.md` |
+| **Shipping** | Verify a green stack per PR and land the contiguous verified run | `playbooks/shipping.md` |
+| **Opening a PR** | The last step of every coding playbook | `playbooks/opening-a-pr.md` |
+| **Session pickup** | Resume or take over a prior agent's work from its trail | `playbooks/session-pickup.md` |
+| **Pause safely** | Explicit pause, going offline, restart or imminent compaction | `playbooks/pause-safely.md` |
+| **Authoring a skill** | Writing or changing a SKILL.md | `playbooks/authoring-a-skill.md` |
+| **Eval** | Measure how a skill, structure or prompt change affects agent behavior | `playbooks/eval.md` |
+| **Worktree cleanup** | Reclaim disk: prune merged or abandoned worktrees and stale simulators | `playbooks/worktree-cleanup.md` |
+
+PR, CI and merge steps go through the forge the repository uses (GitHub, Gitea, Origin): resolve it once per task with `references/forges.md`.
 
 ### The `figure-it-out` Fallback
 If an incoming request is novel, cross-cutting, or does not match any bundled playbook, do not drop engineering rigor. Route to the **figure-it-out** playbook to synthesize a bespoke, verifiable checklist before touching code.

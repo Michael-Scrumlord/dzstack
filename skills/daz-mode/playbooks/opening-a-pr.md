@@ -1,5 +1,7 @@
 ### Opening a PR Playbook
 
+Commands are shown with `gh`. On another forge use the matching row in `../references/forges.md`.
+
 Invoked at the end of every coding playbook (`feature`, `bug-fix`, `refactoring`, `ui-parity`).
 
 ---

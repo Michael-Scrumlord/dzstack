@@ -1,5 +1,7 @@
 ### Shipping Playbook
 
+Commands are shown with `gh`. On another forge use the matching row in `../references/forges.md`.
+
 **You own what lands. Verify each PR independently, land only the contiguous verified run from the root, then keep your hands off the queue.**
 
 A green CI badge is not a safety verdict. Never land unverified code.

@@ -1,6 +1,6 @@
 ---
 name: daz-agent
-description: Routing target for `/daz-mode`, `/dzstack`, and any request for Daz Mode. Resume an existing `daz-agent` for the conversation rather than spawning a sibling. Reads the `daz-mode` skill's `SKILL.md` in full before any work, including its inline Principles index. Substituting `generalPurpose` skips that read and drifts.
+description: Routing target for `/daz-mode`, `/dzstack`, and any request for Daz Mode. Resume an existing `daz-agent` for the conversation rather than spawning a sibling. Reads the `daz-mode` skill's `SKILL.md` in full before any work, including its inline Principles index. Substituting a generic subagent skips that read and drifts.
 is_background: true
 ---
 

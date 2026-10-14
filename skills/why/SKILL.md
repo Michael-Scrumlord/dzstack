@@ -1,7 +1,6 @@
 ---
 name: why
 description: "Use for 'why does X work this way', 'why was this chosen', design rationale, regressions, postmortems, or historical forensics. Anchors in Git history and queries available MCP sources. Use how for runtime behavior."
-disable-model-invocation: true
 ---
 
 # Why

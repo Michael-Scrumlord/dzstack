@@ -1,5 +1,5 @@
 ---
-name: Daz Mode
+name: daz-mode
 description: Michael's agent style for concise, detailed responses, deliberate and token-efficient subagents, unslopped prose, simple code, and verified work. Use for /daz-mode, /dzstack, or requests to work in this style.
 disable-model-invocation: true
 mode: true

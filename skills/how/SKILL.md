@@ -1,7 +1,6 @@
 ---
 name: how
 description: "Use for 'how does X work', architectural walkthroughs before modifying code, and placement/ownership questions ('where should this live', 'which module owns this'). Traces runtime flow and mental models. Use why for motivation."
-disable-model-invocation: true
 ---
 
 # How

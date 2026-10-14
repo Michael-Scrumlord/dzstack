@@ -1,7 +1,6 @@
 ---
 name: unslop
 description: Eliminate AI tells, conversational padding, hyperbolic jargon, and token-wasting fluff. Must always apply to all prose, PRs, and messages.
-disable-model-invocation: true
 ---
 
 # Unslop

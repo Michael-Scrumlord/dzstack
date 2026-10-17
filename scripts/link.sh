@@ -4,16 +4,14 @@
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 
+win_junctions=0
 case "$(uname -s 2>/dev/null || echo unknown)" in
   MINGW*|MSYS*|CYGWIN*)
     export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"
     export CYGWIN="${CYGWIN:+$CYGWIN }winsymlinks:nativestrict"
     probe_dir=$(mktemp -d 2>/dev/null || mktemp -d -t dzstack-link)
     if ! ln -s "$here/README.md" "$probe_dir/probe" 2>/dev/null || [ ! -L "$probe_dir/probe" ]; then
-      rm -rf "$probe_dir"
-      echo "error: native symlinks unavailable on Windows Git Bash." >&2
-      echo "fix: enable Windows Developer Mode (Settings -> System -> For developers) or run an elevated shell, then re-run scripts/link.sh." >&2
-      exit 1
+      win_junctions=1
     fi
     rm -rf "$probe_dir"
     ;;
@@ -21,13 +19,25 @@ esac
 
 skipped=0
 link() { # source target
+  if [ "$win_junctions" -eq 1 ] && [ ! -d "$1" ]; then
+    cp -f "$1" "$2"
+    return
+  fi
   if [ -L "$2" ]; then
-    ln -sfn "$1" "$2"
+    rm -rf "$2"
   elif [ -e "$2" ]; then
     echo "skip (not a link, left alone): $2"
     skipped=$((skipped + 1))
+    return
+  fi
+  if [ "$win_junctions" -eq 1 ]; then
+    cmd //c mklink //J "$(cygpath -w "$2")" "$(cygpath -w "$1")" >/dev/null
   else
     ln -s "$1" "$2"
+  fi
+  if [ ! -L "$2" ]; then
+    echo "error: failed to create link at $2" >&2
+    exit 1
   fi
 }
 

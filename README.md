@@ -26,7 +26,7 @@ Token-efficient, high-rigor agent engineering stack for Cursor, Claude Code, Ant
 ### 0. Install (one clone, every harness)
 ```bash
 git clone <this repo> ~/dzstack      # Michael's machines: gitea:sirius/dzstack.git
-~/dzstack/scripts/link.sh            # links skills into ~/.claude/skills, ~/.agents/skills, and ~/.cursor/skills
+~/dzstack/scripts/link.sh            # links skills into ~/.claude/skills, ~/.agents/skills, ~/.cursor/skills, and (when ~/.gemini exists) ~/.gemini/config/skills
 ```
 `git pull` in the clone updates every harness. Run `link.sh` again after adding or renaming a skill (on Windows Git Bash, `link.sh` uses native symlinks when Developer Mode is enabled and NTFS directory junctions otherwise). If `pstack` is also installed as a plugin (`pstack:<skill>`), bare skill names resolve to `dzstack`.
 

@@ -7,7 +7,7 @@
 | Harness | Project Skills | User Skills | Model Config |
 |---|---|---|---|
 | **Cursor** | `.cursor/skills/` | `~/.cursor/skills/` | `~/.cursor/rules/daz-models.mdc` |
-| **Antigravity** | `skills/` or `.agent/skills/` | `~/.gemini/antigravity/skills/` or `~/.agents/skills/` | `~/.agents/daz-models.md` |
+| **Antigravity** | `skills/` or `.agent/skills/` | `~/.gemini/config/skills/` or `~/.agents/skills/` | `~/.agents/daz-models.md` |
 | **Claude Code** | `.claude/skills/` | `~/.claude/skills/` | `~/.agents/daz-models.md` |
 | **Codex** | `.agents/skills/` | `~/.codex/skills/` or `~/.agents/skills/` | `~/.agents/daz-models.md` |
 | **OpenCode** | `.agents/skills/` | `~/.config/opencode/skills/` or `~/.agents/skills/` | `~/.agents/daz-models.md` |
@@ -30,5 +30,5 @@
 
 | Capability | Cursor | Antigravity | Claude Code | Codex | OpenCode | Single-Threaded Fallback |
 |---|---|---|---|---|---|---|
-| **Subagent spawn** | `Task` (`subagent_type: "daz-agent"` or `"generalPurpose"`) | `invoke_subagent` (`TypeName: "daz-agent"` or `"self"`) | `Agent` (`subagent_type: "daz-agent"` or `"general-purpose"`) | `spawn_agent` | `task` (`subagent_type: "general"`) | Execute steps sequentially in the main agent. |
+| **Subagent spawn** | `Task` (`subagent_type: "daz-agent"` or `"generalPurpose"`) | `invoke_subagent` (`TypeName: "self"`; the prompt reads `~/.claude/agents/daz-agent.md`) | `Agent` (`subagent_type: "daz-agent"` or `"general-purpose"`) | `spawn_agent` | `task` (`subagent_type: "general"`) | Execute steps sequentially in the main agent. |
 | **Structured question** | `AskQuestion` | `ask_question` | `AskUserQuestion` | Numbered options in chat | `question` | Numbered options in chat. |

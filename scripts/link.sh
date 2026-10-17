@@ -43,6 +43,7 @@ link() { # source target
 
 skill_dirs="$HOME/.claude/skills $HOME/.agents/skills"
 [ -d "$HOME/.cursor" ] && skill_dirs="$skill_dirs $HOME/.cursor/skills"
+[ -d "$HOME/.gemini" ] && skill_dirs="$skill_dirs $HOME/.gemini/config/skills"
 
 for dir in $skill_dirs; do
   mkdir -p "$dir"

@@ -62,22 +62,63 @@ const walk = (dir) => {
 walk(root);
 
 const playbooks = readdirSync(join(skillsDir, "daz-mode", "playbooks"));
+const bannedPatterns = [
+  { re: /udzstack/i, label: "corrupted search-and-replace token 'udzstack'" },
+  { re: /git show origin\/main:(?:dzstack\/)?skills\//, label: "repo-coupled 'git show origin/main:...skills/'" },
+  { re: /configured fast model \(e\.g\. per setup-dzstack\)/, label: "unresolved placeholder 'configured fast model (e.g. per setup-dzstack)'" },
+  { re: /poteto-mode-tools/, label: "legacy package name 'poteto-mode-tools'" },
+];
+
 for (const path of markdown) {
   const text = readFileSync(path, "utf8");
   const where = path.slice(root.length + 1);
-  for (const [, name] of text.matchAll(/`(principle-[a-z0-9-]+)`/g)) if (!skillSet.has(name)) add(`${where}: names missing skill ${name}`);
-  for (const [, name] of text.matchAll(/skills\/([a-z0-9-]+)\//g)) if (!skillSet.has(name)) add(`${where}: names missing skill ${name}`);
-  for (const [, file] of text.matchAll(/playbooks\/([a-z0-9-]+\.md)/g)) if (!playbooks.includes(file)) add(`${where}: names missing playbook ${file}`);
-  for (const [, file] of text.matchAll(/references\/([a-z0-9-]+\.md)/g)) {
-    const skill = where.startsWith("skills/") ? where.split("/")[1] : null;
+  for (const [, name] of text.matchAll(/[`*]{1,2}(principle-[a-z0-9-]+)[`*]{1,2}/g)) {
+    if (!skillSet.has(name)) add(`${where}: names missing skill ${name}`);
+  }
+  for (const [, name] of text.matchAll(/\*\*([a-z0-9-]+)\*\*\s+principle\s+skill/g)) {
+    if (!name.startsWith("principle-")) add(`${where}: unprefixed principle skill reference "**${name}**" (use "principle-${name}")`);
+  }
+  for (const [, name] of text.matchAll(/(?:^|[^a-z0-9_-])skills\/([a-z0-9-]+)\//g)) {
+    if (!skillSet.has(name)) add(`${where}: names missing skill ${name}`);
+  }
+  for (const [, file] of text.matchAll(/playbooks\/([a-z0-9-]+\.md)/g)) {
+    if (!playbooks.includes(file)) add(`${where}: names missing playbook ${file}`);
+  }
+  for (const [, targetSkill, file] of text.matchAll(/(?:\.\.\/([a-z0-9-]+)\/)?references\/([a-z0-9-]+\.md)/g)) {
+    const skill = targetSkill ?? (where.startsWith("skills/") ? where.split("/")[1] : null);
     const candidates = skill ? [join(skillsDir, skill, "references", file)] : skills.map((s) => join(skillsDir, s, "references", file));
-    if (!candidates.some((c) => existsSync(c))) add(`${where}: names missing reference ${file}`);
+    if (!candidates.some((c) => existsSync(c))) add(`${where}: names missing reference ${targetSkill ? `../${targetSkill}/` : ""}references/${file}`);
   }
   for (const [, link] of text.matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/g)) {
     if (/^(https?:|mailto:|~|\/)/.test(link) || link.includes("${")) continue;
     if (!existsSync(normalize(join(dirname(path), link)))) add(`${where}: broken link ${link}`);
   }
+  for (const { re, label } of bannedPatterns) {
+    if (re.test(text)) add(`${where}: contains ${label}`);
+  }
 }
+
+const codeFiles = [];
+const walkCode = (dir) => {
+  for (const entry of readdirSync(dir)) {
+    if (entry === "node_modules" || entry.startsWith(".")) continue;
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) walkCode(path);
+    else if (/\.(ts|mjs|sh|json|lock)$/.test(entry) && path !== new URL(import.meta.url).pathname) codeFiles.push(path);
+  }
+};
+walkCode(root);
+for (const path of codeFiles) {
+  const text = readFileSync(path, "utf8");
+  const where = path.slice(root.length + 1);
+  for (const { re, label } of bannedPatterns) {
+    if (re.test(text)) add(`${where}: contains ${label}`);
+  }
+}
+
+const sickoAgent = readFileSync(join(root, "agents", "comment-sicko.md"), "utf8");
+const sickoRef = readFileSync(join(skillsDir, "no-comments", "references", "comment-sicko.md"), "utf8");
+if (sickoAgent !== sickoRef) add("agents/comment-sicko.md and skills/no-comments/references/comment-sicko.md are out of sync");
 
 const router = readFileSync(join(skillsDir, "daz-mode", "SKILL.md"), "utf8");
 for (const file of playbooks) if (!router.includes(`playbooks/${file}`)) add(`daz-mode router: playbook ${file} is unreachable (not in the router)`);
@@ -88,4 +129,4 @@ if (problems.length) {
   console.log(`\n${problems.length} problem(s)`);
   process.exit(1);
 }
-console.log(`ok: ${skills.length} skills, ${playbooks.length} playbooks, every reference resolves`);
+console.log(`ok: ${skills.length} skills, ${playbooks.length} playbooks, every reference and hygiene gate clean`);

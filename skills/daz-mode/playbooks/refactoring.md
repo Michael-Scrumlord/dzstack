@@ -10,7 +10,7 @@ If the cleanup reveals a missing feature or an existing bug, split it out into i
 
 1. **Pin the behavior contract first (Deterministic Baseline).**
    - Run a targeted inspection over the affected subsystem to learn the contract.
-   - Write a characterization test, output snapshot, or deterministic equivalence harness that captures current input-to-output behavior *before* touching any structure.
+   - Write a characterization test, output snapshot, or deterministic equivalence harness that captures current input-to-output behavior *before* touching any structure (**principle-test-behavior-not-implementation**).
    - If the area has no test coverage, write the pin first. Type checks and linter passes are **not** a behavior pin.
 
 2. **Name the missing structure.**
@@ -24,15 +24,16 @@ If the cleanup reveals a missing feature or an existing bug, split it out into i
 4. **Subtract before you add (Active Inlining & Dead Code Purge).**
    - Delete dead code, drop redundant validators, and remove orphaned references before introducing the new shape (**principle-subtract-before-you-add**).
    - **One-caller inlining:** Actively identify and inline single-caller wrapper functions to flatten call hierarchies.
+   - **Enforce structural caps:** Keep functions $\le 50$ LoC with $\le 3$ nesting levels, and split modules exceeding $\sim 400$ LoC along cohesive domain boundaries.
    - The smallest change that reaches the target shape ships (**principle-laziness-protocol**). Speculative cleanups that "might help" are reverted immediately.
 
 5. **Move in small, behavior-preserving steps.**
    - For API reshapes, migrate every caller and delete the old API in the exact same wave (**principle-migrate-callers-then-delete-legacy-apis**). No deprecated compatibility shims, no parallel old-and-new paths.
    - Spot-check every symbol rename across all consuming files.
-   - Delegate mechanical edits to your configured code model with an explicit file scope and exact behavior to hold. Review the diff yourself.
+   - Delegate mechanical edits to your configured `code` model with an explicit file scope and exact behavior to hold. Review the diff yourself.
 
 6. **Prove deterministic equivalence on the real artifact.**
-   - Run the characterization pin from Step 1 against the modified code (**principle-prove-it-works**).
+   - Run the characterization pin from Step 1 against the modified code (**principle-prove-it-works**) plus full-repo strict typecheck and unused-symbol checks (`--noUnusedLocals --noUnusedParameters`).
    - Outputs must be 100% deterministically identical. Any behavior deviation or test failure requires an immediate revert of the offending change.
    - Do not trust a delegate's "looks good" summary; inspect the runtime proof yourself.
 

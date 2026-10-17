@@ -49,15 +49,17 @@ Activate the core engineering workflow in any session:
 ## System Architecture
 
 ### 1. Core Engine & Router
-- `skills/daz-mode/SKILL.md`: Main execution harness, non-negotiables, cross-harness adapters, and task router.
-- `skills/setup-dzstack/SKILL.md`: Role-to-model configuration and token budget gates.
+- `skills/daz-mode/SKILL.md`: Main execution harness, non-negotiables, complexity/static hygiene caps, and task router.
+- `skills/dzstack/SKILL.md`: Slash-command alias (`/dzstack`) that activates `daz-mode`.
+- `skills/setup-dzstack/SKILL.md`: Role-to-model configuration (`orchestrator`, `architect`, `code`, `fast`, plus child roles) and token budget gates.
 - `skills/figure-it-out/SKILL.md`: Bespoke playbook generator for novel or cross-cutting engineering initiatives.
-- `skills/daz-mode/references/forges.md`: One place that maps PR, CI and merge steps to GitHub (`gh`), Gitea (MCP or REST) and Origin.
+- `skills/daz-mode/references/harnesses.md`: Canonical multi-harness adapter table (skill folders, model files, session transcripts, subagent tools, and structured-question tools across Cursor, Antigravity, Claude Code, Codex, OpenCode, and Pi).
+- `skills/daz-mode/references/forges.md`: One place that maps PR, CI and merge steps to GitHub (`gh`), Gitea (`tea`, MCP, or REST) and Origin.
 - `agents/daz-agent.md`: The subagent that runs in Daz Mode. `agents/comment-sicko.md`: A comment-purging reviewer.
 
 ### 2. Playbooks (`skills/daz-mode/playbooks/`)
 - `bug-fix.md`: Scientific defect reproduction, narrowest patch, and empirical proof.
-- `feature.md`: Domain modeling first, anti-bloat checklist, and 5 mandatory UI states.
+- `feature.md`: Domain modeling first, anti-bloat and complexity caps, and 5 mandatory UI states.
 - `ideation.md`: Feature brainstorming, technical feasibility, and phased roadmapping.
 - `investigation.md`: Read-only architectural forensics and trade-off matrices.
 - `refactoring.md`: Deterministic behavior preservation with negative LoC balance.
@@ -83,23 +85,22 @@ Activate the core engineering workflow in any session:
 
 ### 3. Architecture, Forensics & Review
 - `skills/architect/SKILL.md`: Interface depth, system trade-offs, and design red-flag elimination.
-- `skills/interrogate/SKILL.md`: Contrarian review, adversarial testing, and lead judgment.
+- `skills/interrogate/SKILL.md`: Contrarian review, complexity and type-safety audit, and lead judgment.
 - `skills/arena/SKILL.md`: Isolated candidate bake-offs ($N=3$) with worktree isolation.
 - `skills/how/SKILL.md`: Subsystem walkthroughs and execution tracing.
 - `skills/why/SKILL.md`: Git archaeology and cross-source historical reasoning.
 - `skills/blast-radius/SKILL.md`: Mapping ripple effects and proving the one safety fact with real code execution.
 
 ### 4. Verification & Testing
-- `skills/tdd/SKILL.md`: Red-green-refactor loop with targeted runner flags and negative LoC bias.
+- `skills/tdd/SKILL.md`: Red-green-refactor loop, undefined-return mutation check, and pure-function extraction.
 - `skills/create-verification-skill/SKILL.md`: Generating project-local verification drivers and feature maps.
 - `skills/maintain-verification-skill/SKILL.md`: Auditing and synchronizing verification maps as codebases evolve.
 
 ### 5. Hygiene, Collaboration & Writing
 - `skills/unslop/SKILL.md`: 33 rules of clean engineering prose and token frugality.
-- `skills/no-comments/SKILL.md`: Comment purification preserving only educational design pattern tags.
+- `skills/no-comments/SKILL.md`: Comment purification and dead-symbol sweep preserving only educational design pattern tags.
 - `skills/automate-me/SKILL.md`: Capturing working conventions into customized `-mode` skills.
 - `skills/bro/SKILL.md`: Ultra-condensed plain-English explanation stripped of jargon.
-- `skills/make-bot-ui/SKILL.md`: High-clarity bot interfaces, webhook triggers, and dashboard layouts.
 - `skills/recall/SKILL.md`: Reconstructing working context from transcripts and git records.
 - `skills/reflect/SKILL.md`: Multi-lens post-task reflection routing learnings into structural skills.
 - `skills/show-me-your-work/SKILL.md`: Tabular decision logging (`decisions.tsv`) with verified evidence.
@@ -116,8 +117,8 @@ Executable leaf skills grounding architectural and operational decisions:
 
 ## Maintaining dzstack
 
-- **Structure check:** `node scripts/check.mjs` before every commit. It fails on a skill whose `name` differs from its folder, a description over 1024 characters, a reference to a missing skill, playbook, reference file or link, a playbook the router cannot reach, a principle missing from the index, and a hidden skill without its Codex policy.
+- **Structure & hygiene check:** `node scripts/check.mjs` before every commit. It validates frontmatter, skill names, descriptions, cross-references, `principle-*` references, router coverage, Codex policies, banned legacy tokens, and comment-sicko prompt sync.
 - **Hidden skills** need both `disable-model-invocation: true` (Claude Code, Cursor) and `agents/openai.yaml` with `allow_implicit_invocation: false` (Codex). Without the second, Codex lists the skill in every session (measured: 79 listed skills before, 37 after).
-- **Scripts:** `cd skills/daz-mode/scripts && bun test orch watch-pr && bun run typecheck`.
-- **Hosting:** the source of truth is Gitea (`sirius/dzstack`); the public GitHub repository is a mirror kept by `github-publish`. Push to Gitea only.
+- **Scripts:** `cd skills/daz-mode/scripts && bun run typecheck && bun test`.
+- **Hosting:** the source of truth is Gitea (`sirius/dzstack`); the public GitHub repository (`Michael-Scrumlord/dzstack`) is a mirror kept by `sirius-github` (`github-publish`). Push to Gitea only.
 

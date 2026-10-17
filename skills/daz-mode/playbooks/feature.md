@@ -23,10 +23,12 @@
 
 4. **Scoped Implementation & Anti-Bloat Guardrails.**
    - **Name the data shape first:** Model the domain using state machines, discriminated unions, or typed records per **principle-model-the-domain** instead of sprawling boolean flags.
-   - **Enforce Anti-Bloat Checklist:**
+   - **Enforce Anti-Bloat & Complexity Caps:**
+     - *Hard structural limits:* Keep functions $\le 50$ LoC with $\le 3$ levels of indentation. Split modules exceeding $\sim 400$ LoC along clear domain boundaries.
+     - *Zero boolean flag traps:* Never add boolean parameters that split a function into two behaviors; use explicit options or separate functions.
+     - *Zero unvalidated casts:* Validate external data at the boundary; never silence the compiler with `as any` or `as unknown as T`.
      - *Zero single-caller wrappers:* Inline one-off helper functions. Keep call hierarchies flat.
      - *Zero dependency inflation:* Prefer standard library and existing project utilities over new external packages.
-     - *Lean modules:* Keep files cohesive and short.
      - *Purge comment narration:* Keep comments only for non-obvious platform/vendor constraints.
      - *Educational Pattern Documentation:* When introducing a structural design pattern, document it with a single-line tag: `// Pattern: <Canonical Name> - <1-line rationale>`.
    - **Commit in atomic, verifiable units:** Stage small, logically cohesive commits. Do not litter git history with messy WIP commits that trigger redundant CI runs.
@@ -39,8 +41,9 @@
    4. *Error State:* Human-readable error recovery with a retry action.
    5. *Stress/Overflow State:* Verified against long text strings, narrow mobile viewports, and edge bounds.
 
-6. **Targeted Verification.**
-   - Run a targeted, deterministic test or execution script against the exact modified path.
+6. **Targeted Verification & Static Hygiene Gate.**
+   - Write behavior-pinning tests per **principle-test-behavior-not-implementation**: include at least one negative/boundary case and verify each test fails if the implementation returns `undefined` or no-ops.
+   - Run full-repo strict typecheck (including test files) and unused-symbol checks (`--noUnusedLocals --noUnusedParameters`) with zero errors.
    - Prove the new capability works with runtime output. "It compiles" is not completion.
 
 7. **Clean Delivery.**

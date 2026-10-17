@@ -10,7 +10,7 @@ Be scientific. Every shipped line traces to runtime evidence. Belt-and-suspender
 
 1. **Reproduce it yourself directly (Zero Loss of Rigor).**
    - Do not ask the user to verify or reproduce the issue.
-   - **Project with existing test suite:** Add a permanent regression test directly to the test suite that fails under current conditions.
+   - **Project with existing test suite:** Add a permanent regression test directly to the test suite that fails under current conditions and asserts the observable output or state transition per **principle-test-behavior-not-implementation**.
    - **Project without test suite (or heavy suite):** Write an isolated, deterministic reproduction script (e.g., `repro.ts`, `repro.py`, or curl command) with strict assertions that exits with a non-zero code on failure. This ensures 100% test rigor without token-expensive suite runs.
    - **UI/Visual defect:** Drive the rendered surface (headless browser, Playwright, or screenshot) to capture and assert the broken visual state.
 
@@ -23,11 +23,12 @@ Be scientific. Every shipped line traces to runtime evidence. Belt-and-suspender
 
 3. **Plan and implement the minimal fix.**
    - If the fix crosses module boundaries, settle the interface and type contracts first.
-   - Delegate implementation to your configured code model with an explicit, narrow file scope, or apply the surgical edit directly.
-   - Review the diff: ensure zero single-caller wrappers, no unnecessary comments, and negative/minimal lines of code.
+   - Delegate implementation to your configured `code` model with an explicit, narrow file scope, or apply the surgical edit directly.
+   - Review the diff: ensure zero single-caller wrappers, functions $\le 50$ LoC with $\le 3$ nesting levels, no unvalidated type casts, no unnecessary comments, and negative/minimal lines of code.
 
 4. **Verify on the exact same surface.**
-   - Re-run the reproduction test or script from Step 1. The original repro must now pass cleanly (exit code 0).
+   - Re-run the reproduction test or script from Step 1. The original repro must now pass cleanly (exit code 0), and must fail if the fix is reverted or returns `undefined`.
+   - Run strict typecheck and unused-symbol checks across modified modules.
    - For UI defects, re-inspect the rendered element to confirm layout geometry, focus, and styling match expectations.
    - "It compiles" or "CI passed" is not proof of bug absence. Only the passing repro script is proof.
 

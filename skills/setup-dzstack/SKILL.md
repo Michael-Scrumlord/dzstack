@@ -23,12 +23,14 @@ code (Parent Role)
  ├── feature
  ├── bug-fix
  ├── refactoring
- └── perf-issue
+ ├── perf-issue
+ └── hillclimb
 
 architect (Parent Role)
  ├── judgment
  ├── hardest tasks
- └── architect runners
+ ├── architect runners
+ └── reflect-tooling
 
 forensics (Parent Role)
  ├── how explorer / explainer
@@ -36,7 +38,8 @@ forensics (Parent Role)
 
 reviewer (Parent Role)
  ├── interrogate reviewers
- └── arena cross-judge
+ ├── arena cross-judge
+ └── reflect-judgment
 
 ui-designer (Specialist: UI/UX, responsive layouts, design tokens)
  └── Fallback: code
@@ -44,7 +47,7 @@ ui-designer (Specialist: UI/UX, responsive layouts, design tokens)
 technical-writer (Specialist: READMEs, docs, PR descriptions, unslop)
  └── Fallback: architect
 
-fast-scout (Specialist: bulk directory sweeps, grep triage, low-token scans)
+fast-scout (Specialist: bulk directory sweeps, grep triage, swarm workers)
  └── Fallback: code
 
 product-strategist (Specialist: ideation, feasibility, marketability, roadmaps)
@@ -64,6 +67,8 @@ Identify the model slugs available in your current harness session:
 
 ### 2. Start From What Exists (don't ask again)
 Look for an existing configuration first, in this order: `.dzstack/models.md`, `~/.agents/daz-models.md`, then older stacks' files (`~/.claude/pstack-models.md`, `~/.claude/cstack-models.md`). If one exists, derive the dzstack file from it (map its roles onto the roster below, carry over every model restriction), show the result, and write it without prompting: Never Block on the Human. Ask only when nothing exists or a role can't be mapped.
+
+**Legacy `pstack` Hook Neutralization (Claude Code):** If `~/.claude/pstack-models.md` exists, ensure it contains `session hook: off` (append or update that line if missing). Otherwise, `pstack`'s `SessionStart` hook in `~/.claude/settings.json` will inject conflicting `pstack` rules into every Claude Code session alongside `dzstack`.
 
 ### 2b. Select Reasoning Budget & Thinking Parameters
 Current frontier models support native reasoning effort controls (`off`, `low`, `medium`, `high`) alongside explicit token budget caps.

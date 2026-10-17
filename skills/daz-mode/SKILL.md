@@ -1,7 +1,6 @@
 ---
 name: daz-mode
-description: Michael's agent style for concise, detailed responses, deliberate and token-efficient subagents, unslopped prose, simple code, and verified work. Use for /daz-mode, /dzstack, or requests to work in this style.
-disable-model-invocation: true
+description: Michael's agent style for concise, detailed responses, deliberate and token-efficient subagents, unslopped prose, simple code, and verified work. Use for /daz-mode, /dzstack, "engage daz-mode", "use dzstack", or requests to work in this style.
 mode: true
 icon: lambda
 color: cyan
@@ -33,15 +32,18 @@ The Principles section below grounds every trigger. In your reply, name each pri
 - Subagents do not read each other's transcripts. The parent agent receives only compact diffs and distilled test results.
 - Single-threaded execution by default; multi-model fan-out is strictly opt-in.
 
-### 4. Zero-Fluff Hygiene & Narration Purge
-- **Zero conversational padding:** No greetings, apologies, or conversational transitions.
-- **Comment elimination:** Purge all narration comments (`// step 1`, `// do X`). Keep comments only for unresolvable external platform quirks.
-- **Negative LoC bias:** Measure diffs by simplicity and line deletion. Reject refactors that add lines without adding capabilities.
+### 4. Structural Complexity & Anti-Spaghetti Guardrails
+- **Function complexity cap:** Keep functions $\le 50$ LoC and $\le 3$ levels of control-flow nesting. Flatten deep conditionals with early returns, discriminated unions, lookup tables, or pure helper extraction.
+- **Module size trigger:** Crossing $\sim 400$ LoC in a source file requires a domain-cohesion split check before adding more code.
+- **Signature & type discipline:** Ban boolean flag parameters (`fn(data, true, false)`); use named option objects or distinct functions. Ban unvalidated `as` casts and lying type guards (**principle-type-system-discipline**).
+- **Zero pass-through wrappers & negative LoC bias:** Inline any single-caller helper that neither compresses a non-trivial invariant nor isolates an I/O boundary. Reject refactors that add lines without adding capability.
+- **Comment elimination:** Purge all narration comments (`// step 1`, `// do X`). Keep comments only for unresolvable external platform quirks or canonical `// Pattern:` tags.
 
-### 5. Targeted One-Shot Verification
+### 5. Targeted One-Shot Verification & Static Hygiene Gate
 - "Green CI" and "it compiles" are not safety proofs.
-- Verify changes with a targeted, one-shot deterministic test or script exercising the exact modified path.
-- Do not burn tokens polling wide test suites or CI logs.
+- Verify changes with a targeted, one-shot deterministic test or script exercising the exact modified path (**principle-prove-it-works**).
+- **Undefined-return mutation check:** Every new or modified test must fail if the subject function returns `undefined`, and must cover at least one negative or boundary input alongside the happy path (**principle-test-behavior-not-implementation**).
+- **Pre-commit static gate:** Run strict project typechecking (`tsc --noEmit --strict` including test files, `pyright`/`mypy`, `cargo check`) and dead-symbol checks (`--noUnusedLocals --noUnusedParameters`, `knip`, `ruff`) before declaring completion.
 
 ### 6. UI/UX Rigor & Surface Verification
 - **Surface execution:** Never guess CSS or layout behavior. Drive the rendered surface (Playwright, Chrome DevTools, or screenshot inspection) to verify what the user actually sees.
@@ -120,31 +122,14 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
 
 ## Harness Mappings
 
-dzstack is designed to run portably across modern agent environments. Map tools and paths to your active harness:
+dzstack runs portably across Cursor, Antigravity, Claude Code, Codex, OpenCode, and Pi. See [`references/harnesses.md`](references/harnesses.md) for canonical skill directories, workspace transcript locations, subagent tools, and structured-question mappings:
 
-- **Subagents:**
-  - **Cursor:** `Task` (`subagent_type: "daz-agent"`)
-  - **Antigravity:** `invoke_subagent` (`TypeName: "daz-agent"` or `TypeName: "self"`)
-  - **Claude Code:** `Agent` (`subagent_type: "daz-agent"`, registered by `scripts/link.sh`; else `"general-purpose"`)
-  - **Codex:** `spawn_agent`
-  - **OpenCode:** `task` (`subagent_type: "general"`)
-  - *Fallback:* If `daz-agent` is not registered, start the subagent prompt with: *"Read skills/daz-mode/SKILL.md in full, including its Principles index, before executing."*
+- **Subagents:** `Task` in Cursor, `invoke_subagent` in Antigravity, `Agent` in Claude Code (`subagent_type: "daz-agent"`), `spawn_agent` in Codex, `task` in OpenCode, or sequential execution in single-threaded harnesses. If `daz-agent` is not registered, start the subagent prompt with: *"Read skills/daz-mode/SKILL.md in full, including its Principles index, before executing."*
 - **Worktree Isolation:** Concurrent subagents must execute in dedicated git worktrees (`git worktree add`) or isolated branch directories so file modifications never collide.
-- **Model Settings:**
-  - **Cursor:** `~/.cursor/rules/daz-models.mdc`
-  - **Antigravity, Claude Code, Codex, OpenCode:** `~/.agents/daz-models.md`
-  - Read this configuration at session start to resolve role-to-model mappings.
-- **Structured Questions:**
-  - **Cursor:** `AskQuestion`
-  - **Antigravity:** `ask_question`
-  - **Claude Code:** `AskUserQuestion`
-  - **OpenCode:** `question`
-  - *Fallback:* Structured numbered list in chat.
-- **Skill Directories:**
-  - Project level: `.cursor/skills/`, `.antigravity/skills/`, `.claude/skills/`, `.agents/skills/`
-  - User level: `~/.cursor/skills/`, `~/.claude/skills/`, `~/.agents/skills/` (Codex reads `~/.agents/skills`). `scripts/link.sh` links this repo into them.
-  - Hidden skills (principles, playbook-only tools) carry both `disable-model-invocation: true` (Claude Code, Cursor) and `agents/openai.yaml` with `allow_implicit_invocation: false` (Codex). Without the second, Codex lists them in every session.
-- **MCP Integration:** Discover and leverage active Model Context Protocol (MCP) tools dynamically (browser automation, GitHub, issue trackers, observability) without hardcoded assumptions.
+- **Model Settings:** `~/.cursor/rules/daz-models.mdc` in Cursor; `~/.agents/daz-models.md` in Antigravity, Claude Code, Codex, OpenCode, and Pi (with optional repo-local `.dzstack/models.md` override).
+- **Structured Questions:** `AskQuestion` in Cursor, `ask_question` in Antigravity, `AskUserQuestion` in Claude Code, `question` in OpenCode, or a numbered list in chat.
+- **Skill Directories:** Linked via `scripts/link.sh`. Hidden skills (principles, playbook-only tools) carry both `disable-model-invocation: true` and `agents/openai.yaml` with `allow_implicit_invocation: false`.
+- **MCP Integration:** Discover and use active Model Context Protocol (MCP) tools dynamically (browser automation, GitHub/Gitea, issue trackers, observability) without hardcoded assumptions.
 
 ---
 

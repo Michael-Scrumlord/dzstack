@@ -1,5 +1,4 @@
-declare const prNumberBrand: unique symbol;
-export type PrNumber = number & { readonly [prNumberBrand]: "PrNumber" };
+export type PrNumber = number & { readonly __brand: "PrNumber" };
 export type NonEmpty<T> = readonly [T, ...T[]];
 export function nonEmpty<T>(items: readonly T[]): NonEmpty<T> | null {
   return items.length === 0 ? null : [items[0], ...items.slice(1)];
@@ -232,11 +231,11 @@ export type QueryFailure =
 /**
  * `frontier` names the lowest unmerged PR that is actually waiting, and
  * `pending` is that PR's checks only. Pooling every row's pending under the
- * bottom PR's number misattributed udzstack waits to the frontier.
+ * bottom PR's number misattributed upstack waits to the frontier.
  *
  * This decision serves single and `--stack` mode. Queued mode deliberately
  * reports its own merge frontier instead: when that PR is blocker-free it
- * emits a merge-queue wait that ignores udzstack pending, because udzstack
+ * emits a merge-queue wait that ignores upstack pending, because upstack
  * checks do not block the frontier's merge. That is the Python watcher's
  * contract, not an attribution bug.
  */

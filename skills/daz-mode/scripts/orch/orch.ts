@@ -4,9 +4,10 @@ import { ensureDependenciesInstalled } from "../bootstrap.ts";
 import {
   NotFoundError,
   UsageError,
+  countLine,
+  errorMessage,
   openStore,
   parseVerdict,
-  type Counts,
   type Frontier,
   type InboxPointer,
   type OpenGate,
@@ -84,10 +85,6 @@ interface FrontierSetOptions {
   readonly prs?: readonly number[];
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function positiveInteger(value: string): number {
   const parsed = Number(value);
   if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(parsed)) {
@@ -102,13 +99,6 @@ function prList(value: string): readonly number[] {
     throw new InvalidArgumentError("requires a comma-separated PR list");
   }
   return parts.map(positiveInteger);
-}
-
-function countLine(value: Counts): string {
-  const entries = Object.entries(value);
-  return entries.length === 0
-    ? "none"
-    : entries.map(([name, count]) => `${name}=${count}`).join(", ");
 }
 
 function unitLine(unit: Unit): string {
@@ -550,7 +540,7 @@ function handleError(error: unknown, program: Command, io: Io): number {
     }
     return 2;
   }
-  io.stderr(`error: ${message(error)}\n`);
+  io.stderr(`error: ${errorMessage(error)}\n`);
   if (error instanceof UsageError) {
     io.stderr(program.helpInformation());
   }

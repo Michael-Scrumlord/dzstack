@@ -15,6 +15,24 @@ Visual equivalence is verified by image comparison or computed DOM layout metric
      - **Mobile:** 375px width (ensures responsive layouts do not break silently)
    - **State Coverage:** Capture the component across its operational states (Default, Loading, Empty, Error, Stress). States that don't apply (an Empty state on a marketing page): say so and why, in one line, instead of skipping silently.
    - **Live surfaces** (WebGL, canvas, particles, GSAP timelines, cursor parallax) never render two identical frames. Before any baseline, **pin time and randomness**: a debug hook such as `?still=<seconds>` that freezes the animation clock at a given time, seeds every random source, and ignores the pointer. If the project has none, adding it is the first change. Surfaces that cannot be pinned get a region mask in the diff, and the mask is recorded with the baseline; it is never widened later.
+     - **Reference `?still=<seconds>` hook (drop in at app entry):**
+       ```ts
+       const stillParam = new URLSearchParams(location.search).get("still");
+       if (stillParam !== null) {
+         const tSec = Number(stillParam) || 0;
+         const tMs = tSec * 1000;
+         let seed = 0x2f6e2b1;
+         Math.random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 0x100000000);
+         performance.now = () => tMs;
+         window.requestAnimationFrame = (cb) => (cb(tMs), 0);
+         (window as { gsap?: { globalTimeline: { pause: () => unknown; time: (t: number) => unknown } } })
+           .gsap?.globalTimeline.pause().time(tSec);
+         const s = document.createElement("style");
+         s.textContent = `*,*::before,*::after{animation-play-state:paused!important;animation-delay:-${tSec}s!important;transition-duration:0s!important;transition-delay:0s!important;caret-color:transparent!important}`;
+         document.head.appendChild(s);
+       }
+       ```
+     - **Minification trap:** Never assert or regex-match raw CSS duration strings like `600ms` against production builds; CSS minifiers (esbuild, LightningCSS, cssnano) rewrite `600ms` to `.6s`. Seek CSS animations via negative `animation-delay: -${tSec}s` with `animation-play-state: paused`, or compare `getComputedStyle(el).animationDuration` in seconds.
    - *No baseline captured = no visual parity claim allowed.*
 
 2. **Anti-Shortcut Clauses (Strictly Enforced).**
@@ -45,7 +63,7 @@ Visual equivalence is verified by image comparison or computed DOM layout metric
    - Ensure tap targets on mobile meet minimum accessible hit areas (at least 44x44px).
    - Verify color contrast ratios pass WCAG AA standards.
 
-6. **Stage and Deliver.**
+7. **Stage and Deliver.**
    - Rebase into clean commits. Keep before/after screenshot artifacts visible for review.
 
 ---

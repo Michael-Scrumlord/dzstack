@@ -13,7 +13,7 @@ Explore the codebase to answer "how does X work?" questions. Produce architectur
 
 ### 1. Identify Scope & Grounding
 - Parse the target subsystem or question.
-- Read relevant entry points and core modules thoroughly and core modules (do not rely on fragmented snippets when understanding entire subsystems).
+- Read relevant entry points and core modules thoroughly (do not rely on fragmented snippets when understanding entire subsystems).
 - Trace callers, callees, and data flow.
 
 ### 2. Single-Agent Execution (Token-Conscious)

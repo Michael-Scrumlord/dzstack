@@ -4,7 +4,7 @@ import process from "node:process";
 
 const RULE =
 	"Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.";
-const LANES = "Ten lanes on `configured fast model (e.g. per setup-dzstack)` at the PR head";
+const LANES = "Live lanes at the PR head";
 const SUB_BLOCKS = [
 	"Depends on.",
 	"Files.",
@@ -17,7 +17,7 @@ const SUB_BLOCKS = [
 	"Merge.",
 ];
 const PROGRAM_H3 = ["Arm the program", "Spawn owners", "PR mechanics", "Verdict and merge", "Boot recipe"];
-const PROGRAM_MARKERS = ["/goal", "git show origin/main:", /30[- ]minute/, "status message"];
+const PROGRAM_MARKERS = ["/goal", "skills/daz-mode/playbooks/", /30[- ]minute/, "status message"];
 const HOW_TO_READ_MARKERS = [
 	"One box is one unit of work",
 	"names the evidence",
@@ -138,8 +138,14 @@ for (const pr of prSections) {
 	if (live) {
 		if (!live.rest.includes(LANES)) fail(live.n, `${pr.title}: Verify, live lacks "${LANES}"`);
 		const lanes = boxes(live.lines).map((b) => ({ ...b, m: b.text.match(/^Lane (\d+)\. /) }));
-		const numbers = lanes.filter((b) => b.m).map((b) => Number(b.m[1])).sort((a, b) => a - b);
-		if (numbers.join(",") !== "1,2,3,4,5,6,7,8,9,10") fail(live.n, `${pr.title}: lanes are [${numbers.join(",")}], expected 1 to 10`);
+		const numbers = lanes.filter((b) => b.m).map((b) => Number(b.m[1]));
+		const expected = Array.from({ length: numbers.length }, (_, idx) => idx + 1);
+		if (numbers.length === 0 || numbers.join(",") !== expected.join(",")) {
+			fail(live.n, `${pr.title}: lanes are [${numbers.join(",")}], expected consecutive 1..N`);
+		}
+		if (lanes[0] && !lanes[0].text.startsWith("Lane 1. Regression lane against trunk.")) {
+			fail(lanes[0].n, `${pr.title}: Lane 1 must be "Regression lane against trunk."`);
+		}
 		for (const lane of lanes) {
 			if (!lane.m) fail(lane.n, `${pr.title}: live box is not a lane`);
 			else if (!/Save `[^`]+`/.test(lane.text)) fail(lane.n, `${pr.title}: lane ${lane.m[1]} names no screenshot`);

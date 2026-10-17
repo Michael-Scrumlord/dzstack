@@ -16,45 +16,29 @@ Invoke when the user says "reflect" or "/reflect". Skip when the conversation is
 
 ### 1. Locate the active transcript
 
-The parent finds its own transcript file before fanning out. Use only the active workspace's transcript directory. Never glob across every project's directory. That crosses workspace boundaries and reads private chats from unrelated projects.
+The parent finds its own transcript file before fanning out per `../daz-mode/references/harnesses.md`. Use only the active workspace's transcript directory. Never glob across every project's directory. That crosses workspace boundaries and reads private chats from unrelated projects.
 
-Where the transcript lives depends on your harness:
-
-- **Cursor:** the system prompt names the active workspace's `agent-transcripts/` directory. Use that path.
-
-  ```bash
-  ls -t <agent-transcripts>/*.jsonl <agent-transcripts>/*/*.jsonl <agent-transcripts>/*/subagents/*.jsonl 2>/dev/null | head -10
-  ```
-
-  Three transcript layouts: legacy flat (`<id>.jsonl`), current nested (`<id>/<id>.jsonl`), and subagent (`<parent>/subagents/<child>.jsonl`).
-- **Claude Code:** `~/.claude/projects/<slug>/<session-id>.jsonl`, where `<slug>` is the workspace path with every character that isn't a letter or digit turned into "-".
-- **Pi:** `~/.pi/agent/sessions/--<slug>--/*.jsonl`, where `<slug>` is the workspace path with the leading slash dropped and each "/" turned into "-".
-- **Codex:** `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. Keep only files whose first line has `payload.cwd` equal to the workspace path.
-- **Other harnesses:** check the harness's session directory for this workspace.
-
-Take the newest candidates first. Confirm a candidate by finding the conversation's opening user prompt in its first user message. Take the matching path. If no path resolves, write a tight digest of the session and pass that instead.
+Take the newest candidates first (`ls -t`). Confirm a candidate by finding the conversation's opening user prompt in its first user message. Take the matching path. If no path resolves, write a tight digest of the session and pass that instead.
 
 ### 2. Spawn three reviewers in parallel
 
-One message, three `Task` calls, `subagent_type: generalPurpose`, explicit `model:` on each, agent mode (`readonly: false`). Reviewers need MCP access for context lookups (tickets, chat threads, observability traces referenced in the transcript). Readonly strips MCPs.
-
-**Other harnesses.** The spawns in this skill use Cursor's `Task` tool. In another harness, use its subagent tool: `invoke_subagent` in Antigravity (`TypeName: "daz-agent"` or `"self"`), `Agent` in Claude Code (`subagent_type: general-purpose`), `task` in OpenCode (`subagent_type: general`), `spawn_agent` in Codex. Keep the prompt and the model. Drop parameters your tool doesn't have. If your harness has no subagent tool or runs single-threaded, run each role yourself sequentially. "Your configured ... model" means the matching line in the dzstack settings file (`~/.cursor/rules/daz-models.mdc` in Cursor, `~/.agents/daz-models.md` in other harnesses).
+Spawn three subagents in parallel using your harness's subagent tool (`../daz-mode/references/harnesses.md`) in agent mode (not read-only, since reviewers may need MCP access for context lookups). If your harness has no subagent tool or runs single-threaded, run each role yourself sequentially. "Your configured ... model" means the matching role in the `setup-dzstack` model file (`~/.cursor/rules/daz-models.mdc` or `~/.agents/daz-models.md`).
 
 | Lens | `model` | Prompt template |
 |---|---|---|
-| Judgment | your configured reflect-judgment model (default `configured reasoning model`) | `references/judgment-reviewer.md` |
-| Tooling | your configured reflect-tooling model (default `configured architect model`) | `references/tooling-reviewer.md` |
-| Divergent | your configured reflect-judgment model (default `configured reasoning model`) | `references/divergent-reviewer.md` |
+| Judgment | your configured `reflect-judgment` model (child of `critique` in `setup-dzstack`) | `references/judgment-reviewer.md` |
+| Tooling | your configured `reflect-tooling` model (child of `architect` in `setup-dzstack`) | `references/tooling-reviewer.md` |
+| Divergent | your configured `reflect-judgment` model (child of `critique` in `setup-dzstack`) | `references/divergent-reviewer.md` |
 
-Pass each template verbatim, substituting the transcript path or digest where marked. Reviewers return findings in the `Task` response body.
+Pass each template verbatim, substituting the transcript path or digest where marked. Reviewers return findings in the response body.
 
 ### 3. Synthesize
 
-One `Task` call, `subagent_type: generalPurpose`, using your configured reflect-judgment model (default `configured reasoning model`), agent mode (`readonly: false`). The synthesizer's quality check includes spot-verifying citations, which can require MCP access. Readonly strips MCPs. Use `references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. The synthesizer returns a structured Accepted / Rejected / Backlog list.
+Run one synthesis subagent using your configured `reflect-judgment` model (child of `critique` in `setup-dzstack`) in agent mode. Use `references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. The synthesizer returns a structured Accepted / Rejected / Backlog list.
 
 ### 4. Structural enforcement check
 
-Sanity-check the synthesizer's Accepted list. For any item that would be enforced more reliably by a lint rule, script, metadata flag, or runtime check, move it from Accepted to Backlog. See the **encode-lessons-in-structure** principle skill.
+Sanity-check the synthesizer's Accepted list. For any item that would be enforced more reliably by a lint rule, script, metadata flag, or runtime check, move it from Accepted to Backlog. See the **principle-encode-lessons-in-structure** skill.
 
 ### 5. Apply
 

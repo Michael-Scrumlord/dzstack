@@ -17,10 +17,18 @@ main_wt=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
 # origin/main drives the merge check. Best-effort; stale is fine for a first pass.
 git fetch origin main --quiet 2>/dev/null || echo "warn: could not fetch origin/main; merged column may be stale" >&2
 
-# PR state by branch, fetched once. Empty if gh is unavailable.
+# PR state by branch, fetched once via gh (GitHub) or tea (Gitea).
 prs=$(mktemp)
-gh pr list --author "@me" --state all --limit 1000 \
-	--json number,state,headRefName 2>/dev/null > "$prs" || echo "[]" > "$prs"
+if ! gh pr list --author "@me" --state all --limit 1000 \
+	--json number,state,headRefName > "$prs" 2>/dev/null || [ ! -s "$prs" ]; then
+	if command -v tea >/dev/null 2>&1; then
+		tea pr list --state all --limit 1000 --output json 2>/dev/null \
+			| jq '[.[] | {number: (.index // .number), state: ((.state // "open") | ascii_upcase), headRefName: (.head // .headRefName)}]' \
+			> "$prs" 2>/dev/null || echo "[]" > "$prs"
+	else
+		echo "[]" > "$prs"
+	fi
+fi
 
 # Chat transcript dirs for a path, per harness: Cursor, Claude Code, Pi.
 # Codex and OpenCode don't group sessions by project, so they aren't searched.
@@ -75,9 +83,9 @@ git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r wt;
 	dirs=$( { transcript_dirs "$main_wt"; transcript_dirs "$wt"; } | sort -u)
 	if [ -n "$dirs" ]; then
 		f=$(printf '%s\n' "$dirs" | tr '\n' '\0' | xargs -0 rg -l -e "${wt}/" -e "${wt}\"" 2>/dev/null \
-			| xargs stat -f '%m %N' 2>/dev/null | sort -rn | head -1)
+			| { xargs stat -f '%m %N' 2>/dev/null || xargs stat -c '%Y %n' 2>/dev/null; } | sort -rn | head -1)
 		if [ -n "$f" ]; then last_ts=$(echo "$f" | awk '{print $1}')
-			last=$(date -r "$last_ts" '+%Y-%m-%d' 2>/dev/null); fi
+			last=$(date -r "$last_ts" '+%Y-%m-%d' 2>/dev/null || date -d "@$last_ts" '+%Y-%m-%d' 2>/dev/null); fi
 	fi
 	recent=$([ "$last_ts" -gt 0 ] 2>/dev/null && [ $(( (now - last_ts) / 86400 )) -le 4 ] && echo yes || echo no)
 

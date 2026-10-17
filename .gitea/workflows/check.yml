@@ -31,4 +31,4 @@ jobs:
       - name: bun 1.4.2
         run: curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.2" >/dev/null && echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
       - working-directory: skills/daz-mode/scripts
-        run: bun install --frozen-lockfile && bun test orch watch-pr && bun run typecheck
+        run: bun install --frozen-lockfile && bun run typecheck && bun test

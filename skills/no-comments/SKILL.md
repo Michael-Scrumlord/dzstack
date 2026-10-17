@@ -19,21 +19,16 @@ Analyze the caller's specified files or diff against the base branch (default `m
 ## Execution Steps
 
 1. **Invoke Comment Sicko.**
-   - Run the Comment Sicko subagent (or execute its prompt from `references/comment-sicko.md` over the target files).
-   - Comment Sicko deletes narrative play-by-play comments and flags internal workarounds as `MUST KILL`.
+   - Run the Comment Sicko subagent (or execute its prompt from [`references/comment-sicko.md`](references/comment-sicko.md) over the target files).
+   - Comment Sicko deletes narrative play-by-play comments, strips unjustified lint/type suppressions, and flags internal workarounds as `MUST KILL`.
 
 2. **Inspect the Audit Report.**
-   - Verify deletions. Restore a comment only if it strictly matches one of the five exceptions:
-     1. Legal/license headers.
-     2. Unavoidable external platform/vendor quirks.
-     3. Public API contract docstrings.
-     4. Issue/RFC tracker links.
-     5. Canonical design pattern tags (`// Pattern: <Name> - <why>`).
-   - If an internal workaround comment was stripped and marked `MUST KILL`, **do not restore the comment**. The underlying code must be refactored.
+   - Verify deletions against the five narrow exceptions defined in [`references/comment-sicko.md`](references/comment-sicko.md) (legal headers, external vendor/OS quirks, public API docstrings, issue/RFC links, and root-level `// Pattern: <Canonical Name> - <1-line rationale>` tags).
+   - If an internal workaround comment or type suppression was stripped and marked `MUST KILL`, **do not restore the comment**. Refactor the underlying code instead.
 
 3. **Refactor `MUST KILL` Targets.**
-   - For simple issues: delete dead branches, remove unused parameters, or inline trivial single-caller helpers.
-   - For complex workarounds: settle the types or domain models so the behavior is obvious from the code itself.
+   - For simple issues: delete dead branches, remove unused parameters, or inline trivial single-caller helpers (**principle-minimize-reader-load**).
+   - For complex workarounds: settle the types or domain models so the behavior is obvious from the code itself (**principle-model-the-domain**, **principle-type-system-discipline**).
    - Never bolt on symptom guards (`if (!foo) return;`) to silence crashes. Fix the root cause (**principle-fix-root-causes**).
 
 4. **Educational Pattern Callout.**

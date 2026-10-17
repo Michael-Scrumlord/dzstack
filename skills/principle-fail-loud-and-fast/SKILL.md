@@ -16,4 +16,4 @@ A failure hidden at its source becomes a mystery three layers later.
 - Errors carry context: what was attempted, with which identifiers, and the underlying cause
 - A fallback is a product decision, made visible to the user ("shown as entered; no rate"), never a hidden default
 - Crash the job, not the system: fail the unit of work and report it, then keep serving others
-- Pair with **boundary-discipline**: guards at the edges, trust inside
+- Pair with **principle-boundary-discipline**: guards at the edges, trust inside

@@ -29,15 +29,27 @@ const skillsDir = join(root, "skills");
 const skills = readdirSync(skillsDir).filter((d) => statSync(join(skillsDir, d)).isDirectory());
 const skillSet = new Set(skills);
 
+// Size budgets (#90): frontmatter is loaded in every session's skill listing, so it fails CI.
+// Bodies load only when a skill is invoked, so an over-budget body warns instead.
+// Budgets are bytes, in the same style as agent-guide's scripts/check.py.
+const DESC_MAX = 400, FM_MAX = 600, BODY_WARN = 8000;
+const BODY_EXEMPT = new Set(["daz-mode"]); // the router: its playbook/principle indexes live in the body
+const warnings = [];
+const bytes = (s) => Buffer.byteLength(s, "utf8");
+
 for (const skill of skills) {
   const path = join(skillsDir, skill, "SKILL.md");
   if (!existsSync(path)) { add(`${skill}: no SKILL.md`); continue; }
+  const text = readFileSync(path, "utf8");
   const fm = frontmatter(path);
   if (!fm) { add(`${skill}: no frontmatter`); continue; }
   if (fm.name !== skill) add(`${skill}: name "${fm.name}" must equal the folder name`);
   if (!kebab.test(skill)) add(`${skill}: folder name must be kebab-case`);
   if (!fm.description) add(`${skill}: no description`);
-  else if (fm.description.length > 1024) add(`${skill}: description is ${fm.description.length} chars (max 1024)`);
+  else if (bytes(fm.description) > DESC_MAX) add(`${skill}: description is ${bytes(fm.description)} bytes (budget ${DESC_MAX}): shorten it; it is loaded in every session`);
+  const fmBlock = text.match(/^---\n([\s\S]*?)\n---\n/)?.[0] ?? "";
+  if (bytes(fmBlock) > FM_MAX) add(`${skill}: frontmatter is ${bytes(fmBlock)} bytes (budget ${FM_MAX}): move detail into the body or a reference`);
+  if (!BODY_EXEMPT.has(skill) && bytes(text) > BODY_WARN) warnings.push(`${skill}: SKILL.md body is ${bytes(text)} bytes (soft budget ${BODY_WARN}): consider moving detail into references/`);
   const hidden = fm["disable-model-invocation"] === "true";
   const codexPolicy = join(skillsDir, skill, "agents", "openai.yaml");
   const codexHidden = existsSync(codexPolicy) && /allow_implicit_invocation:\s*false/.test(readFileSync(codexPolicy, "utf8"));
@@ -124,6 +136,7 @@ const router = readFileSync(join(skillsDir, "daz-mode", "SKILL.md"), "utf8");
 for (const file of playbooks) if (!router.includes(`playbooks/${file}`)) add(`daz-mode router: playbook ${file} is unreachable (not in the router)`);
 for (const skill of skills.filter((s) => s.startsWith("principle-"))) if (!router.includes(`\`${skill}\``)) add(`daz-mode principles index: ${skill} is missing`);
 
+for (const w of warnings) console.log(`warning: ${w}`);
 if (problems.length) {
   console.log(problems.map((p) => `- ${p}`).join("\n"));
   console.log(`\n${problems.length} problem(s)`);

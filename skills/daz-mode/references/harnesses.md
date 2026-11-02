@@ -32,3 +32,5 @@
 |---|---|---|---|---|---|---|
 | **Subagent spawn** | `Task` (`subagent_type: "daz-agent"` or `"generalPurpose"`) | `invoke_subagent` (`TypeName: "self"`; the prompt reads `~/.claude/agents/daz-agent.md`) | `Agent` (`subagent_type: "daz-agent"` or `"general-purpose"`) | `spawn_agent` | `task` (`subagent_type: "general"`) | Execute steps sequentially in the main agent. |
 | **Structured question** | `AskQuestion` | `ask_question` | `AskUserQuestion` | Numbered options in chat | `question` | Numbered options in chat. |
+
+**Nesting.** Some harnesses and versions give a subagent no spawn tool. Plan as if none does. The root spawns owners, verifiers and audit passes, and an owner never counts on spawning its reviewer.

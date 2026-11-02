@@ -16,8 +16,16 @@ const SUB_BLOCKS = [
 	"Review gate.",
 	"Merge.",
 ];
-const PROGRAM_H3 = ["Arm the program", "Spawn owners", "PR mechanics", "Verdict and merge", "Boot recipe"];
-const PROGRAM_MARKERS = ["/goal", "skills/daz-mode/playbooks/", /30[- ]minute/, "status message"];
+const PROGRAM_H3 = [
+	"Arm the program",
+	"Standing orders",
+	"Spawn owners",
+	"PR mechanics",
+	"Verdict and merge",
+	"Phase gates",
+	"Boot recipe",
+];
+const PROGRAM_MARKERS = ["/goal", "skills/daz-mode/playbooks/", /30[- ]minute/, "status message", "Resume the program"];
 const HOW_TO_READ_MARKERS = [
 	"One box is one unit of work",
 	"names the evidence",
@@ -58,6 +66,7 @@ for (let i = start; i < raw.length; i++) {
 	if (/[\u2013\u2014]/.test(prose)) fail(n, "long dash");
 	if (/[\u2018\u2019\u201c\u201d]/.test(prose)) fail(n, "curly quote");
 	if (/: \S/.test(prose)) fail(n, "mid-sentence colon");
+	if (/<[^>\n]+>/.test(prose)) fail(n, "unfilled placeholder");
 }
 
 const h2 = (l) => (!l.code && l.text.startsWith("## ") ? l.text.slice(3).trim() : null);
@@ -105,6 +114,40 @@ const programIndex = sections.indexOf(program);
 const closeIndex = sections.indexOf(close);
 const prSections = programIndex === -1 || closeIndex === -1 ? [] : sections.slice(programIndex + 1, closeIndex);
 if (prSections.length === 0) fail(1, "no PR sections between Program checklist and Close the program");
+
+// Phase gates: top-level "Phase <n> gate after <PR ids>. ..." boxes, each with nested operator lanes.
+const gates = new Map();
+if (program) {
+	let inGates = false;
+	let current = null;
+	for (const l of program.body) {
+		if (l.code) continue;
+		if (l.text.startsWith("### ")) {
+			inGates = l.text.slice(4).trim().startsWith("Phase gates");
+			current = null;
+			continue;
+		}
+		if (!inGates) continue;
+		const top = l.text.match(/^- \[[ x]\] Phase (\d+) gate after (.+?)\. /);
+		if (top) {
+			const ids = top[2].split(/,\s*|\s+and\s+/).map((s) => s.trim()).filter(Boolean);
+			current = { n: l.n, ids };
+			gates.set(top[1], current);
+			continue;
+		}
+		if (/^- /.test(l.text)) current = null;
+		const lane = l.text.match(/^\s+- \[[ x]\] Operator lane\. (.*)$/);
+		if (lane && current && !lane[1].includes("Pass when")) fail(l.n, "operator lane has no pass predicate");
+	}
+}
+const gateOf = new Map();
+for (const [phase, g] of gates) {
+	for (const id of g.ids) {
+		if (gateOf.has(id)) fail(g.n, `${id} is in phases ${gateOf.get(id)}, ${phase}`);
+		else gateOf.set(id, phase);
+	}
+}
+const fullPlaybook = howToRead ? bodyText(howToRead).includes("autopilot-full") : false;
 
 const report = [];
 for (const pr of prSections) {
@@ -159,12 +202,21 @@ for (const pr of prSections) {
 		if (items.join("|") !== PERF_ITEMS.join("|")) fail(perf.n, `${pr.title}: perf boxes are [${items.join(", ")}], expected [${PERF_ITEMS.join(", ")}]`);
 	}
 
+	const prId = (pr.title.match(/\(([^()]+)\)\s*$/) || [])[1];
+	if (prId && !gateOf.has(prId)) fail(pr.n, `${prId} is in no phase gate`);
 	const gate = block("Review gate.");
 	if (gate) {
 		const gateBoxes = boxes(gate.lines);
 		if (gate.rest.startsWith("None.")) {
 			if (gateBoxes.length) fail(gate.n, `${pr.title}: Review gate says None but has boxes`);
+		} else if (!/^Phase (\d+) gate\./.test(gate.rest)) {
+			fail(gate.n, `${pr.title}: Review gate must be "None." or "Phase <n> gate."`);
 		} else {
+			const phase = gate.rest.match(/^Phase (\d+) gate\./)[1];
+			if (prId && gateOf.has(prId) && gateOf.get(prId) !== phase) {
+				fail(gate.n, `${pr.title}: Review gate says phase ${phase}, but the Phase gates list it under phase ${gateOf.get(prId)}`);
+			}
+			if (fullPlaybook) fail(gate.n, `${pr.title}: review-gated PRs run autopilot-stack, not autopilot-full`);
 			const text = gate.lines.map((l) => l.text).join("\n");
 			if (gateBoxes.length === 0) fail(gate.n, `${pr.title}: Review gate has no box`);
 			for (const word of ["screenshot", "video", "operator"]) {

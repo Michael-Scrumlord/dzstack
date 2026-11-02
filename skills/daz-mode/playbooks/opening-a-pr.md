@@ -32,7 +32,7 @@ Invoked at the end of every coding playbook (`feature`, `bug-fix`, `refactoring`
    - `## Why`: 1–2 short paragraphs explaining intent and business problem solved.
    - `## Scope`: Compact bulleted list of modified symbols, files, and public contracts.
    - `## Tradeoffs`: Key rejected alternatives and why they were declined.
-   - `## Blast Radius`: 1–3 sentences naming what this touches, breaking change risks, and rollback safety.
+   - `## Blast Radius`: 1–3 sentences naming what this touches, breaking change risks, and rollback safety. Then every change an existing user will notice beyond the feature (a changed default, a setting that now takes effect, a removed path, a new outbound request), or "No other behavior change." after checking. This line is never omitted.
    - `## Verification`: Terminal or runtime proof (`before → after` output, test results, or viewport check confirmation).
 
 5. **Open via GitHub CLI (`gh`).**

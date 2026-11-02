@@ -16,5 +16,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["bootstrap.ts", "orch/*.ts", "watch-pr/*.ts"]
+  "include": ["bootstrap.ts", "orch/*.ts", "watch-pr/*.ts", "tests/*.ts"]
 }

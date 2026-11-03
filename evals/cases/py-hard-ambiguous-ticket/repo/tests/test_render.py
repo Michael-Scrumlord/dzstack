@@ -5,7 +5,7 @@ def test_text_invoice(doc):
     text = api.render(doc)
     lines = text.splitlines()
     assert lines[0].startswith("INVOICE (draft)") and lines[0].endswith("Issued 2026-03-02")
-    assert lines[1] == "Acme GmbH (DE)" and lines[2] == "ap@acme.example"
+    assert lines[1] == "Acme GmbH (DE)" and lines[2] == "ap@example.com"
     assert all(len(line) <= 72 for line in lines)
     assert any(line.startswith("SUB-PRO") and line.endswith("$49.00") for line in lines)
     totals = [line for line in lines if line.startswith(" " * 36)]

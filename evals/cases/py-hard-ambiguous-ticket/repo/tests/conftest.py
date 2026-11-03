@@ -8,7 +8,7 @@ def doc():
     """A small valid document: two lines, two tax codes, a customer in Germany."""
     return copy.deepcopy(
         {
-            "customer": {"name": "Acme GmbH", "country": "DE", "email": "ap@acme.example"},
+            "customer": {"name": "Acme GmbH", "country": "DE", "email": "ap@example.com"},
             "issued": "2026-03-02",
             "notes": "PO 77",
             "lines": [

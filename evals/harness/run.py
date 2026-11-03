@@ -136,7 +136,7 @@ def make_workspace(case, root: Path):
     # caches a test run leaves behind are not the agent's changes
     (work / ".git/info/exclude").write_text("__pycache__/\n*.pyc\n.pytest_cache/\nnode_modules/\n.DS_Store\n")
     sh(["git", "-C", str(work), "add", "-A"])
-    sh(["git", "-C", str(work), "-c", "user.name=fixture", "-c", "user.email=fixture@eval.invalid",
+    sh(["git", "-C", str(work), "-c", "user.name=fixture", "-c", "user.email=fixture@example.com",
         "commit", "-q", "-m", "fixture"])
     shutil.copytree(work, orig, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
     return work, orig, meta

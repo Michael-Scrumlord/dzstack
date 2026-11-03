@@ -2,7 +2,7 @@
   "currency": "USD",
   "customer": {
     "country": "DE",
-    "email": "ap@acme.example",
+    "email": "ap@example.com",
     "name": "Acme GmbH"
   },
   "format_version": 1,

@@ -17,10 +17,10 @@ def test_create_is_audited(conn):
 
 
 def test_list_is_sorted_by_name_ignoring_case(conn):
-    for name, email in [("bob Brown", "b@x.io"), ("Alice Zed", "a@x.io"), ("Carol Adams", "c@x.io")]:
+    for name, email in [("bob Brown", "b.x@example.net"), ("Alice Zed", "a.x@example.net"), ("Carol Adams", "c.x@example.net")]:
         users.create(conn, full_name=name, email=email)
     assert [u["full_name"] for u in users.list_users(conn)] == ["Alice Zed", "bob Brown", "Carol Adams"]
-    assert [u["email"] for u in users.list_users(conn, sort="email")] == ["a@x.io", "b@x.io", "c@x.io"]
+    assert [u["email"] for u in users.list_users(conn, sort="email")] == ["a.x@example.net", "b.x@example.net", "c.x@example.net"]
 
 
 def test_search_matches_part_of_the_name_ignoring_case(conn):
@@ -32,9 +32,9 @@ def test_search_matches_part_of_the_name_ignoring_case(conn):
 
 
 def test_search_treats_like_wildcards_literally(conn):
-    users.create(conn, full_name="50% Off", email="a@x.io")
-    users.create(conn, full_name="Anything", email="b@x.io")
-    assert [u["email"] for u in users.list_users(conn, q="%")] == ["a@x.io"]
+    users.create(conn, full_name="50% Off", email="a.x@example.net")
+    users.create(conn, full_name="Anything", email="b.x@example.net")
+    assert [u["email"] for u in users.list_users(conn, q="%")] == ["a.x@example.net"]
     assert [u["email"] for u in users.list_users(conn, q="_")] == []
 
 
@@ -54,6 +54,6 @@ def test_delete_clears_team_leads(conn, people):
 
 def test_email_changes_are_audited_by_the_database(conn):
     user = users.create(conn, full_name="Ada Lovelace", email="ada@example.com")
-    users.update(conn, user["id"], email="ada@lovelace.org")
+    users.update(conn, user["id"], email="ada.lovelace@example.org")
     actions = [e["action"] for e in audit.for_subject(conn, user["id"])]
     assert "user.email_changed" in actions

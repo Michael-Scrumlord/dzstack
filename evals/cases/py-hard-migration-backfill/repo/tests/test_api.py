@@ -19,7 +19,7 @@ def test_validation_errors_are_400_with_the_field(conn):
     assert (status, body["error"], body["field"]) == (400, "validation", "full_name")
     status, body = call(conn, "POST", "/users", body={"full_name": "Ada", "email": "nope"})
     assert (status, body["field"]) == (400, "email")
-    status, body = call(conn, "POST", "/users", body={"full_name": "Ada", "email": "a@b.co", "colour": "red"})
+    status, body = call(conn, "POST", "/users", body={"full_name": "Ada", "email": "a.b@example.org", "colour": "red"})
     assert status == 400 and "colour" in body["message"]
 
 

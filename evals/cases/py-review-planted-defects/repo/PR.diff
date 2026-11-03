@@ -1,5 +1,5 @@
 From d1571bbcfb2a7b45a3391f7beb6c242b854f377e Mon Sep 17 00:00:00 2001
-From: Sam Okafor <sam@example.invalid>
+From: Sam Okafor <sam@example.com>
 Date: Mon, 2 Mar 2026 10:15:00 -0800
 Subject: [PATCH] Admin tools: member lookup, bulk checkout, overdue report
 

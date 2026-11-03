@@ -25,6 +25,6 @@ def test_tax_is_rounded_per_line_not_on_the_total(doc):
 def test_the_computed_form_has_the_documented_fields(doc):
     out = api.compute(doc)
     assert out["number"] is None
-    assert out["customer"] == {"name": "Acme GmbH", "country": "DE", "email": "ap@acme.example"}
+    assert out["customer"] == {"name": "Acme GmbH", "country": "DE", "email": "ap@example.com"}
     assert out["issued"] == "2026-03-02" and out["currency"] == "USD" and out["terms_days"] == 30
     assert out["lines"][0]["quantity"] == "1" and out["lines"][0]["tax_code"] == "standard"

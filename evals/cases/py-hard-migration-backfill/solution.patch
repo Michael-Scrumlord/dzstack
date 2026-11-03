@@ -547,12 +547,12 @@ index a10f7fb..dbda018 100644
 +
 +
 +def test_a_user_can_be_created_from_parts_or_from_a_full_name(conn):
-+    _, body = call(conn, "POST", "/users", body={"given_name": " Mary  Jane ", "family_name": "Watson", "email": "m@x.io"})
++    _, body = call(conn, "POST", "/users", body={"given_name": " Mary  Jane ", "family_name": "Watson", "email": "m.x@example.net"})
 +    user = body["user"]
 +    assert (user["given_name"], user["family_name"], user["full_name"]) == ("Mary Jane", "Watson", "Mary Jane Watson")
-+    _, body = call(conn, "POST", "/users", body={"full_name": "Watson, Peter", "email": "p@x.io"})
++    _, body = call(conn, "POST", "/users", body={"full_name": "Watson, Peter", "email": "p.x@example.net"})
 +    assert (body["user"]["given_name"], body["user"]["family_name"]) == ("Peter", "Watson")
-+    stored = conn.execute("SELECT full_name FROM users WHERE email = 'p@x.io'").fetchone()[0]
++    stored = conn.execute("SELECT full_name FROM users WHERE email = 'p.x@example.net'").fetchone()[0]
 +    assert stored == "Peter Watson"
 +
 +
@@ -694,10 +694,10 @@ index 45b12ea..43448d3 100644
  
  
  def test_non_letters_go_under_hash_and_sort_last(conn):
--    users.create(conn, full_name="Zed 9", email="z@x.io")
--    users.create(conn, full_name="Amy Adams", email="a@x.io")
-+    users.create(conn, given_name="Zed", family_name="9", email="z@x.io")
-+    users.create(conn, given_name="Amy", family_name="Adams", email="a@x.io")
+-    users.create(conn, full_name="Zed 9", email="z.x@example.net")
+-    users.create(conn, full_name="Amy Adams", email="a.x@example.net")
++    users.create(conn, given_name="Zed", family_name="9", email="z.x@example.net")
++    users.create(conn, given_name="Amy", family_name="Adams", email="a.x@example.net")
      assert list(reports.index_by_initial(conn)) == ["A", "#"]
  
  
@@ -812,13 +812,13 @@ index 63c88e4..821c4fd 100644
  
 -def test_list_is_sorted_by_name_ignoring_case(conn):
 +def test_list_is_sorted_by_family_name_then_given_name_ignoring_case(conn):
-     for name, email in [("bob Brown", "b@x.io"), ("Alice Zed", "a@x.io"), ("Carol Adams", "c@x.io")]:
+     for name, email in [("bob Brown", "b.x@example.net"), ("Alice Zed", "a.x@example.net"), ("Carol Adams", "c.x@example.net")]:
 -        users.create(conn, full_name=name, email=email)
 -    assert [u["full_name"] for u in users.list_users(conn)] == ["Alice Zed", "bob Brown", "Carol Adams"]
 +        given, _, family = name.partition(" ")
 +        users.create(conn, given_name=given, family_name=family, email=email)
 +    assert [u["full_name"] for u in users.list_users(conn)] == ["Carol Adams", "bob Brown", "Alice Zed"]
-     assert [u["email"] for u in users.list_users(conn, sort="email")] == ["a@x.io", "b@x.io", "c@x.io"]
+     assert [u["email"] for u in users.list_users(conn, sort="email")] == ["a.x@example.net", "b.x@example.net", "c.x@example.net"]
  
  
  def test_search_matches_part_of_the_name_ignoring_case(conn):
@@ -832,11 +832,11 @@ index 63c88e4..821c4fd 100644
  
  
  def test_search_treats_like_wildcards_literally(conn):
--    users.create(conn, full_name="50% Off", email="a@x.io")
--    users.create(conn, full_name="Anything", email="b@x.io")
-+    users.create(conn, given_name="50%", family_name="Off", email="a@x.io")
-+    users.create(conn, given_name="", family_name="Anything", email="b@x.io")
-     assert [u["email"] for u in users.list_users(conn, q="%")] == ["a@x.io"]
+-    users.create(conn, full_name="50% Off", email="a.x@example.net")
+-    users.create(conn, full_name="Anything", email="b.x@example.net")
++    users.create(conn, given_name="50%", family_name="Off", email="a.x@example.net")
++    users.create(conn, given_name="", family_name="Anything", email="b.x@example.net")
+     assert [u["email"] for u in users.list_users(conn, q="%")] == ["a.x@example.net"]
      assert [u["email"] for u in users.list_users(conn, q="_")] == []
  
  
@@ -852,6 +852,6 @@ index 63c88e4..821c4fd 100644
  def test_email_changes_are_audited_by_the_database(conn):
 -    user = users.create(conn, full_name="Ada Lovelace", email="ada@example.com")
 +    user = users.create(conn, given_name="Ada", family_name="Lovelace", email="ada@example.com")
-     users.update(conn, user["id"], email="ada@lovelace.org")
+     users.update(conn, user["id"], email="ada.lovelace@example.org")
      actions = [e["action"] for e in audit.for_subject(conn, user["id"])]
      assert "user.email_changed" in actions

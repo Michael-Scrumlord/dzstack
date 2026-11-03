@@ -8,8 +8,8 @@ def test_index_groups_by_last_name_initial(conn, people):
 
 
 def test_non_letters_go_under_hash_and_sort_last(conn):
-    users.create(conn, full_name="Zed 9", email="z@x.io")
-    users.create(conn, full_name="Amy Adams", email="a@x.io")
+    users.create(conn, full_name="Zed 9", email="z.x@example.net")
+    users.create(conn, full_name="Amy Adams", email="a.x@example.net")
     assert list(reports.index_by_initial(conn)) == ["A", "#"]
 
 

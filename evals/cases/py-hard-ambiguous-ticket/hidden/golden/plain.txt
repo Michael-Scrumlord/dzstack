@@ -1,6 +1,6 @@
 INVOICE (draft)                                        Issued 2026-03-02
 Acme GmbH (DE)
-ap@acme.example
+ap@example.com
 
 SKU        Description                     Qty   Unit price       Amount
 ------------------------------------------------------------------------

@@ -21,7 +21,7 @@ test("signup: email is trimmed, blank means required", () => {
 });
 
 test("signup: email format and the 254 limit", () => {
-  for (const email of ["nope", "a@b", "a b@c.de", "@c.de", "a@@c.de"]) {
+  for (const email of ["nope", "a@b", "a b.c@example.org", "@c.de", "a@@c.de"]) {
     assert.deepEqual(validateSignup({ ...signup, email }), bad(err("email", "Enter a valid email address")), email);
   }
   assert.deepEqual(validateSignup({ ...signup, email: emailOfLength(254) }), OK);
@@ -231,7 +231,7 @@ test("invite: email is trimmed and has its own wording for an invalid address", 
   assert.deepEqual(validateInvite({ ...invite, email: "" }), bad(err("email", "Email is required")));
   assert.deepEqual(validateInvite({ ...invite, email: "   " }), bad(err("email", "Email is required")));
   assert.deepEqual(validateInvite({ ...invite, email: "nope" }), bad(err("email", "Enter a valid email address for the invitee")));
-  assert.deepEqual(validateInvite({ ...invite, email: "a b@c.de" }), bad(err("email", "Enter a valid email address for the invitee")));
+  assert.deepEqual(validateInvite({ ...invite, email: "a b.c@example.org" }), bad(err("email", "Enter a valid email address for the invitee")));
 });
 
 test("invite: the email limit is 254, after the format check", () => {
@@ -297,7 +297,7 @@ test("the route handlers still answer 200 or 422 with the same errors", () => {
     body: { errors: [err("username", "Username may only contain lowercase letters, digits and underscores")] },
   });
   assert.deepEqual(handleProfileUpdate({ username: "ada.l", bio: "" }), { status: 200, body: { updated: true } });
-  assert.deepEqual(handleProfileUpdate({ email: " a@b.co" }), {
+  assert.deepEqual(handleProfileUpdate({ email: " a.b@example.org" }), {
     status: 422,
     body: { errors: [err("email", "Enter a valid email address")] },
   });

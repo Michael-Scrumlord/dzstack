@@ -1,6 +1,6 @@
 INVOICE 2025-0002                                      Issued 2025-12-15
 Acme GmbH (DE)
-ap@acme.example
+ap@example.com
 
 SKU        Description                     Qty   Unit price       Amount
 ------------------------------------------------------------------------

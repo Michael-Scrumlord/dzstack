@@ -25,7 +25,7 @@ RUN apt-get update \
 USER node
 ENV HOME=/home/node
 RUN git config --global user.name "eval agent" \
-	&& git config --global user.email "agent@eval.invalid" \
+	&& git config --global user.email "agent@example.com" \
 	&& git config --global init.defaultBranch main \
 	&& git config --global --add safe.directory '*'
 WORKDIR /work

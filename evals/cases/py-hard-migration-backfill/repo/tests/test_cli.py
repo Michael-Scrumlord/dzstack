@@ -30,7 +30,7 @@ def test_errors_exit_non_zero(capsys, tmp_path):
     run(capsys, db_path, "migrate")
     code, _, err = run(capsys, db_path, "users", "show", "9")
     assert code == 1 and "no user 9" in err
-    code, _, err = run(capsys, db_path, "users", "add", "--name", "  ", "--email", "a@b.co")
+    code, _, err = run(capsys, db_path, "users", "add", "--name", "  ", "--email", "a.b@example.org")
     assert code == 2 and "full_name is required" in err
 
 

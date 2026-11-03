@@ -22,7 +22,7 @@ reminder: New coding task? Apply daz-mode, sized to the task. Casual turn or use
 3. **Data shape first.** For new logic, name the types or state machine before writing branches (`principle-model-the-domain`).
 4. **Simple code.** Functions within about 50 lines and 3 levels of nesting. No boolean flag parameters, no unvalidated `as` casts, no one-caller wrappers. No narration comments; keep only a non-obvious *why*.
 5. **Refactors shrink code.** When removing duplication or restructuring, count the touched files' lines before and after (`git diff --shortstat`). If the count grew, rework the change, or state what the growth buys.
-6. **Prove it.** Verify the changed path with a targeted test or script, not "it compiles". A new or changed test must fail on the old code, or if the function returned `undefined`, and covers one negative or boundary input. Run the project's typecheck and lint if it has them.
+6. **Prove it.** Verify the changed path with a targeted test or script, not "it compiles". A new or changed test must fail on the old code, or if the function returned `undefined`, and covers one negative or boundary input. Run the project's typecheck and lint if it has them. A speed fix needs a guard test, per `playbooks/perf-issue.md`.
 7. **UI.** Check the rendered surface, not the CSS source. Use design tokens. For new components, cover the five states in `playbooks/feature.md`.
 8. **Candor.** Say no when a proposal does not earn its place. Reversible work proceeds without asking. Pause before irreversible actions: force-pushing shared branches, deploys, data drops, destructive deletes.
 

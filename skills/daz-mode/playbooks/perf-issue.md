@@ -1,24 +1,22 @@
 ### Perf issue
 
-**You own the measurement story. Plan, review, verify the numbers.** Tie every fix to a measurement, don't read source instead of measuring.
+You own the measurement. Tie every fix to a number; don't read source instead of measuring.
 
-1. Capture a baseline trace via the matching control skill: the project's `verify-<app>` skill if `create-verification-skill` made one, else Playwright/CDP for web and Electron, PTY/tmux for CLIs (defined in `multi-phase-plan.md`, "Control skill"). No control skill for the surface: write the 10-line script that measures it, and keep it with the PR.
-2. `how` to ground hypotheses. Don't claim a perf ceiling without running it first.
-   Most fixes come from eight strategy families. Use them as hypothesis generators, not a checklist. A family earns an attempt only when the trace shows the signal it names.
-   - **Elimination.** Before optimizing the hot path, ask whether it needs to exist: a computation nobody consumes, a feature gate that's always off for this user, a sync that redundantly mirrors state, a legacy path kept "just in case". The trace shows what's slow, never that it's deletable, so this family needs the `how` pass, not the profiler.
-   - **Divide and conquer.** The dominant cost scales with input size. Split the work so each piece touches less (chunk, shard, prune the search space) or so independent pieces run in parallel.
-   - **Caching.** The same computation or fetch repeats on identical inputs. Store and reuse the result. Name what invalidates it before claiming the win.
-   - **Indirection.** The hot path does expensive work a cheaper intermediate could absorb: an index instead of a scan, a queue that shifts work off the interactive thread, a handle that lets a cheaper implementation swap in. Add the hop only when it removes more from the critical path than it adds.
-   - **Batching.** Many small operations each pay a fixed overhead (RPC, query, syscall, draw call). Coalesce them to pay the overhead once per batch.
-   - **Redundancy.** The wait hangs on one slow instance or attempt. Duplicate the work (replicas, hedged requests, speculative execution) and take the fastest result. The trace has to show the wait dominates and the system has headroom.
-   - **Lazy evaluation.** Cost lands on results that are never used or not needed yet (eager init on the boot path, rendering offscreen items). Defer the work until first use.
-   - **Scheduling.** The work must happen, but not during the interactive moment. Move it to where nobody is waiting: idle callbacks, a background warmup after boot, precompute before the user arrives, cleanup after the frame commits. The win is perceived latency, so measure the interactive path, not total work done.
-3. Plan the fix from the trace. If it crosses a function boundary, `architect` first. Delegate implementation to a subagent on the `perf-issue` role from the model file (`.dzstack/models.md` or `~/.agents/daz-models.md`; it inherits `code` when unset). Review the diff. Capture a post-fix trace.
-   Apply the **principle-sequence-verifiable-units** skill, verifying each attempt before trying the next.
-4. Parse and compare the artifacts (JSON to sqlite, diff). "Inconclusive" or wrong-surface is not a pass. Flag it.
-5. Cite the measurement in the PR.
-6. Run **Opening a PR**.
+1. **Baseline.** Measure with the project's `verify-<app>` skill if one exists, else Playwright/CDP for web, PTY/tmux for CLIs (see `multi-phase-plan.md`, "Control skill"), else a 10-line timing script kept with the PR.
+2. **Hypothesize.** Use `how` to ground hypotheses. Try a strategy only when the trace shows its signal:
+   - **Elimination:** the work has no consumer. The profiler can't show this; `how` can.
+   - **Divide and conquer:** cost scales with input. Chunk, prune or parallelize.
+   - **Caching:** identical inputs recompute. Name what invalidates the cache.
+   - **Indirection:** an index instead of a scan, a queue off the hot thread.
+   - **Batching:** many small calls each pay a fixed overhead.
+   - **Redundancy:** one slow replica dominates and there is headroom. Hedge.
+   - **Lazy evaluation:** results computed before they are needed, or never used.
+   - **Scheduling:** necessary work during the interactive moment. Move it to idle time and measure the interactive path.
+3. **Fix.** If it crosses a function boundary, `architect` first. Delegate to the `perf-issue` model role when the change is large (model file: `.dzstack/models.md` or `~/.agents/daz-models.md`). One attempt at a time, each measured (**principle-sequence-verifiable-units**).
+4. **Guard test.** Add a test that fails if the slow behavior returns. Either run at a size where the old code is clearly too slow, under a time limit several times the new code's runtime, or check growth: time n and 4n and fail if the ratio shows the old complexity (quadratic gives about 16, linear about 4, so fail above 8). Run it against the old code and see it fail.
+5. **Compare.** Post-fix measurement against the baseline on the same surface. "Inconclusive" or wrong-surface is not a pass.
+6. Cite the numbers in the PR and run **Opening a PR**.
 
-For sustained improvement against a metric rather than a one-off fix, use the Hillclimb playbook (`playbooks/hillclimb.md`).
+Sustained work against one metric: `playbooks/hillclimb.md`.
 
-**Reply:** baseline number, post-fix number, delta, artifact path.
+**Reply:** baseline, post-fix number, delta, the guard test and its result on the old code.

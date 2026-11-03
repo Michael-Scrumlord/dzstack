@@ -1,6 +1,6 @@
 ---
 name: codebase-survey
-description: "Survey a whole codebase to understand it and find code smells and likely defects, building artifacts as you go: inventory, module map, dependency graph, diagrams, static-analysis results, hotspots and ranked findings with evidence. Use for 'audit this codebase', 'find code smells', 'tech-debt review', 'what's wrong with this repo', onboarding onto an unfamiliar repo, or before a large refactor."
+description: "Survey a whole codebase for smells and likely defects, with inventory, module map, hotspots and ranked findings. Use for 'audit this codebase', 'find code smells', tech-debt reviews, or onboarding onto an unfamiliar repo."
 ---
 
 # Codebase Survey

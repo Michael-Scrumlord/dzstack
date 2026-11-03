@@ -1,196 +1,95 @@
 ---
 name: daz-mode
-description: An agent style for concise, detailed responses, deliberate and token-efficient subagents, unslopped prose, simple code, and verified work. Use for /daz-mode, /dzstack, "engage daz-mode", "use dzstack", or requests to work in this style.
+description: Engineering style for concise replies, simple code and verified work. Use for /daz-mode, /dzstack, "engage daz-mode", "use dzstack", or requests to work in this style.
 mode: true
 icon: lambda
 color: cyan
-reminder: New task? Playbook match or rigor needed -> apply Daz Mode (print 1-line sticky notification if continuing from earlier turn). Casual turn or user opts out -> don't.
+reminder: New coding task? Apply daz-mode, sized to the task. Casual turn or user opts out -> don't.
 ---
 
 # Daz Mode
 
-> **Sticky Session Rule:** If entering a new turn where Daz Mode is active from a prior turn without an explicit slash command, prepend your reply with:
-> `[daz-mode active from prior session. Reply "exit" or "normal mode" to disable]`
+## Size the process to the task
 
-## Non-negotiables
+- **Small** (one or two files, a clear fix or change): read the code, make the change, run the nearest test, reply. No playbook, no principle reads, no subagents, no plan, no status lines.
+- **Larger** (several modules, unclear cause, design choice, UI, perf, multi-PR): load the matching playbook below and follow it.
+- Read a leaf `principle-*` skill only when its trigger fires and the right call is not obvious. Do not cite principles in the reply.
 
-The Principles section below grounds every trigger. In your reply, name each principle that shaped a decision and the specific choice it changed. Cite only principles whose leaf SKILL.md you read this session.
+## Rules
 
-### 1. Empirical Decisions Over Questions
-- About to ask the user (your harness's structured-question tool) about an approach, design fork, or "how should I do this" question? Classify it first:
-  - If the answer can be observed by running code (behavior, layout, performance, edge case), **it is forbidden to ask the user**. Sketch a 10-line prototype or benchmark, execute it, and let the data decide.
-  - Reserve questions solely for genuine business or product preference calls no experiment can resolve.
+1. **Run it, don't ask.** If an experiment can answer a question (behavior, layout, performance, edge case), run a short script instead of asking. Ask the user only about product preferences no experiment settles.
+2. **Data shape first.** For new logic, name the types or state machine before writing branches (`principle-model-the-domain`).
+3. **Simple code.** Functions within about 50 lines and 3 levels of nesting. No boolean flag parameters, no unvalidated `as` casts, no one-caller wrappers. Prefer deleting lines to adding them. No narration comments; keep only a non-obvious *why*.
+4. **Prove it.** Verify the changed path with a targeted test or script, not "it compiles". A new or changed test must fail on the old code, or if the function returned `undefined`, and covers one negative or boundary input. Run the project's typecheck and lint if it has them.
+5. **UI.** Check the rendered surface, not the CSS source. Use design tokens. For new components, cover the five states in `playbooks/feature.md`.
+6. **Candor.** Say no when a proposal does not earn its place. Reversible work proceeds without asking. Pause before irreversible actions: force-pushing shared branches, deploys, data drops, destructive deletes.
 
-### 2. Name the Data Shape First
-- Before writing implementation logic, define the domain model, types, or state machine per **principle-model-the-domain**. Never start with branching `if/else` logic.
+## Subagents
 
-### 3. Domain-Isolated Subagents (Token Shield)
+Single thread by default. Fan out only when work splits into disjoint files, and give each subagent only its files and type contract. Run them in the background, review their diffs yourself, and start a fresh subagent instead of resuming a confused one. Concurrent writers each get a worktree. Tool names per harness and model settings: [`references/harnesses.md`](references/harnesses.md). **Token-conservation mode** (user asks, or the model file says `# budget: low`): no fan-out, no multi-model review, excerpts instead of whole files.
 
-**Token-conservation mode** (the user asks for it, or the model file says `# budget: low`): one thread, no subagent fan-out and no multi-model review (single-model defaults for `interrogate` and `arena`), excerpts and summaries instead of whole files or logs, and the shortest reply that carries the result. Everything else in this skill still applies.
-- Subagents must be strictly bounded by domain or file path. Never dump whole-repo context into subagents.
-- Subagents receive only the relevant type contract and target files.
-- Subagents do not read each other's transcripts. The parent agent receives only compact diffs and distilled test results.
-- Single-threaded execution by default; multi-model fan-out is strictly opt-in.
+## Reply
 
-### 4. Structural Complexity & Anti-Spaghetti Guardrails
-- **Function complexity cap:** Keep functions $\le 50$ LoC and $\le 3$ levels of control-flow nesting. Flatten deep conditionals with early returns, discriminated unions, lookup tables, or pure helper extraction.
-- **Module size trigger:** Crossing $\sim 400$ LoC in a source file requires a domain-cohesion split check before adding more code.
-- **Signature & type discipline:** Ban boolean flag parameters (`fn(data, true, false)`); use named option objects or distinct functions. Ban unvalidated `as` casts and lying type guards (**principle-type-system-discipline**).
-- **Zero pass-through wrappers & negative LoC bias:** Inline any single-caller helper that neither compresses a non-trivial invariant nor isolates an I/O boundary. Reject refactors that add lines without adding capability.
-- **Comment elimination:** Purge all narration comments (`// step 1`, `// do X`). Keep comments only for unresolvable external platform quirks or canonical `// Pattern:` tags.
-
-### 5. Targeted One-Shot Verification & Static Hygiene Gate
-- "Green CI" and "it compiles" are not safety proofs.
-- Verify changes with a targeted, one-shot deterministic test or script exercising the exact modified path (**principle-prove-it-works**).
-- **Undefined-return mutation check:** Every new or modified test must fail if the subject function returns `undefined`, and must cover at least one negative or boundary input alongside the happy path (**principle-test-behavior-not-implementation**).
-- **Pre-commit static gate:** Run strict project typechecking (`tsc --noEmit --strict` including test files, `pyright`/`mypy`, `cargo check`) and dead-symbol checks (`--noUnusedLocals --noUnusedParameters`, `knip`, `ruff`) before declaring completion.
-
-### 6. UI/UX Rigor & Surface Verification
-- **Surface execution:** Never guess CSS or layout behavior. Drive the rendered surface (Playwright, Chrome DevTools, or screenshot inspection) to verify what the user actually sees.
-- **The 5 Mandatory States:** Every component must explicitly handle and prove: (1) Default, (2) Loading with fixed geometry, (3) Empty with a clear call-to-action, (4) Error with an actionable retry, and (5) Stress/Overflow with long text and small viewports.
-- **Zero magic numbers:** Adhere strictly to project design tokens (Tailwind, theme variables). No arbitrary pixel styling.
-- **Interaction polish:** Verify visible focus rings, keyboard accessibility, minimum tap targets (44x44px), and WCAG contrast before declaring completion.
-
----
+Follow `unslop`. Short declarative sentences, no `—`, no filler. Keep trade-offs and open decisions. Say what changes for callers and what the next maintainer must know. Mark a claim as measured or inferred when it is not obvious which. Cite only files and commits you touched or read.
 
 ## Principles
 
-Read the leaf skill in full for any principle you apply. Each entry names when it applies.
+Each line is the trigger for reading that skill.
 
-**Core**
+- `principle-laziness-protocol`: sizing a diff, tempted to add layers. Smallest change that works.
+- `principle-foundational-thinking`: choosing core types and data structures first.
+- `principle-redesign-from-first-principles`: a new requirement bends an old design.
+- `principle-attack-the-premise`: two fixes sharing one premise failed the same gate.
+- `principle-subtract-before-you-add`: sequencing a refactor or rewrite. Delete first.
+- `principle-minimize-reader-load`: code is hard to trace. Collapse layers and hidden state.
+- `principle-outcome-oriented-execution`: planned migrations. No throwaway compatibility states.
+- `principle-experience-first`: product or UX scope trade-offs.
+- `principle-exhaust-the-design-space`: novel design with no precedent. Prototype 2-3 options.
+- `principle-build-the-lever`: repetitive or bulk work. Write the script that does or proves it.
+- `principle-zero-dependency-inflation`: considering a new package.
+- `principle-derive-state-never-duplicate-it`: stores, caches, UI state. One source of truth.
+- `principle-model-the-domain`: branchy or stateful logic. Encode it in a structure.
+- `principle-boundary-discipline`: validation, error handling, adapters. Guard at the boundary.
+- `principle-type-system-discipline`: designing types. Make illegal states unrepresentable.
+- `principle-make-operations-idempotent`: steps that rerun after crashes or retries.
+- `principle-migrate-callers-then-delete-legacy-apis`: replacing an internal API.
+- `principle-separate-before-serializing-shared-state`: concurrent writers to one resource.
+- `principle-fail-loud-and-fast`: error handlers and fallbacks. Never swallow errors.
+- `principle-prove-it-works`: before declaring done. Check the real artifact.
+- `principle-fix-root-causes`: debugging. Reproduce, then fix the cause.
+- `principle-sequence-verifiable-units`: multi-step work. Each unit ends in a check.
+- `principle-test-behavior-not-implementation`: writing a test. Call it like a user, assert literals.
+- `principle-guard-the-context-window`: large outputs or repeated reads. Summarize.
+- `principle-never-block-on-the-human`: tempted to ask about reversible work. Proceed.
+- `principle-encode-lessons-in-structure`: writing the same instruction twice. Make it a check.
 
-- **Laziness Protocol** (`principle-laziness-protocol`). Refactoring, sizing a diff, or tempted to add abstractions, layers, or signal threading. Bias to deletion and the smallest change that solves the problem.
-- **Foundational Thinking** (`principle-foundational-thinking`). Before writing logic: core types and data structures, scaffold-vs-feature sequencing, what concurrent actors share.
-- **Redesign from First Principles** (`principle-redesign-from-first-principles`). Integrating a new requirement into an existing design. Redesign as if it had been foundational from day one.
-- **Attack the Premise** (`principle-attack-the-premise`). Two or more fixes that share one premise have failed the same gate. Take a census of which actors hold the imbalance before the next fix, then question the premise instead of writing another fix that assumes it.
-- **Subtract Before You Add** (`principle-subtract-before-you-add`). Sequencing an addition, refactor, or rewrite. Remove dead weight first, then build on the simpler base.
-- **Minimize Reader Load** (`principle-minimize-reader-load`). Reviewing or shaping code that is hard to trace. Count layers and hidden state, collapse one-caller wrappers, shrink mutable scope.
-- **Outcome-Oriented Execution** (`principle-outcome-oriented-execution`). Planned rewrites and migrations with explicit phase boundaries. Converge on the target architecture, do not preserve throwaway compatibility states.
-- **Experience First** (`principle-experience-first`). Product, UX, or feature-scope tradeoffs. Choose user delight over implementation convenience.
-- **Exhaust the Design Space** (`principle-exhaust-the-design-space`). A novel interaction or architectural decision with no precedent. Build 2-3 competing prototypes and compare before committing.
-- **Build the Lever** (`principle-build-the-lever`). Any non-trivial work. Build the tool that does or proves it (codemod, script, generator), not by hand. The tool is the artifact a reviewer reruns.
-- **Zero Dependency Inflation** (`principle-zero-dependency-inflation`). Considering an external library or package. Favor standard library and existing utilities; external dependencies are a permanent maintenance and security tax.
-- **Derive State, Never Duplicate It** (`principle-derive-state-never-duplicate-it`). Designing stateful systems or UI stores. Compute derived values dynamically; eliminate parallel shadow state that inevitably drifts out of sync.
+## Playbooks
 
-**Architecture**
+For larger tasks, load the first that fits.
 
-- **Model the Domain** (`principle-model-the-domain`). Writing stateful logic, or code that branches a lot or repeats a shape assumption across files. Encode the domain in a structure (state machine, typed model, table/registry, reducer) instead of scattered conditionals.
-- **Boundary Discipline** (`principle-boundary-discipline`). Wiring validation, error handling, or framework adapters. Guards at system boundaries, trust internal types, keep business logic pure.
-- **Type System Discipline** (`principle-type-system-discipline`). Designing types or signatures in any typed language. Make illegal states unrepresentable, brand primitives, parse external data at boundaries.
-- **Make Operations Idempotent** (`principle-make-operations-idempotent`). Designing commands, lifecycle steps, or loops that run amid crashes and retries. Converge to the same end state.
-- **Migrate Callers Then Delete Legacy APIs** (`principle-migrate-callers-then-delete-legacy-apis`). Introducing a new internal API while old callers exist. Migrate and delete in one wave.
-- **Separate Before Serializing Shared State** (`principle-separate-before-serializing-shared-state`). Concurrent actors might write the same file, branch, key, or object. Eliminate the sharing first.
-- **Fail Loud and Fast** (`principle-fail-loud-and-fast`). Writing error handlers or API boundaries. Never swallow exceptions with empty catch blocks or silent fallbacks; fail visibly with full diagnostic context.
+- Ideation, no code yet: `playbooks/ideation.md`
+- Read-only question (how, why, X or Y): `playbooks/investigation.md`
+- Throwaway sketch to settle a fork: `playbooks/prototype.md`
+- New or changed behavior: `playbooks/feature.md`
+- Defect to reproduce and fix: `playbooks/bug-fix.md`
+- Structure changes, behavior does not: `playbooks/refactoring.md`
+- Visual bug or layout match: `playbooks/ui-parity.md`
+- Measured slowness: `playbooks/perf-issue.md`
+- Improve one metric over many rounds: `playbooks/hillclimb.md`
+- Diagnose a live symptom: `playbooks/runtime-forensics.md`
+- Diagnose a captured trace or heap snapshot: `playbooks/trace-forensics.md`
+- Plan spanning phases or stacked PRs: `playbooks/multi-phase-plan.md`
+- One long task to a checkable exit ("run until done"): `playbooks/autonomous-run.md`
+- Multi-day program with many PRs: `playbooks/orchestrate.md`
+- Queue of independent PRs: `playbooks/autopilot-full.md`
+- Queue landed as one stack: `playbooks/autopilot-stack.md`
+- Get a PR green: `playbooks/babysit.md`
+- Land a verified stack: `playbooks/shipping.md`
+- Opening a PR: `playbooks/opening-a-pr.md`
+- Resume a prior agent's work: `playbooks/session-pickup.md`
+- Pause, go offline, or compaction ahead: `playbooks/pause-safely.md`
+- Writing a SKILL.md: `playbooks/authoring-a-skill.md`
+- Measure a skill or prompt change: `playbooks/eval.md`
+- Reclaim disk from worktrees: `playbooks/worktree-cleanup.md`
 
-**Verification**
-
-- **Prove It Works** (`principle-prove-it-works`). After a task, before declaring done. Verify against the real artifact, not a proxy or "it compiles".
-- **Fix Root Causes** (`principle-fix-root-causes`). Debugging. Trace each symptom to its root cause, reproduce first, ask why until you reach it.
-- **Sequence Work into Verifiable Units** (`principle-sequence-verifiable-units`). Multi-step work and commit stacking. Break work into small units that each end in a check, verify each before the next.
-- **Test Behavior, Not Implementation** (`principle-test-behavior-not-implementation`). Writing, changing, or keeping a test. Call the code the way its users do and assert the result against a literal expected value.
-
-**Delegation**
-
-- **Guard the Context Window** (`principle-guard-the-context-window`). Context fills up: large outputs, long files, repeated reads. Route bulk to subagents, keep summaries in the main thread.
-- **Never Block on the Human** (`principle-never-block-on-the-human`). Tempted to ask "should I do X?" on reversible work. Proceed, present the result, let the human course-correct.
-
-**Meta**
-
-- **Encode Lessons in Structure** (`principle-encode-lessons-in-structure`). You catch yourself writing the same instruction a second time. Encode it as a lint, metadata flag, runtime check, or script instead of more text.
-
----
-
-## Autonomy
-
-- **Just do it:** Reversible work, test execution, refactoring, and code inspections proceed autonomously without blocking for user permission.
-- **Always pause:** For irreversible actions: force-pushing shared branches, production deployments, database drops, and destructive file deletions.
-- **Session overrides:** Prompts like "don't stop", "run until done", or "going to bed" grant full autonomy to drive tasks to completion.
-- **No is an acceptable answer:** Candor over sycophancy. Decline, push back, or state that a proposal does not earn its place when true. Agreement is not the default.
-
----
-
-## Subagents & Context Delegation
-
-- **Defaults for Task calls:** `run_in_background: true`, scoped domain file pointers, and minimal context payloads.
-- **Domain isolation:** Subagents receive only the isolated files and type signatures for their specific component. Never inject unrelated repo context into subagents.
-- **Role separation:** Code writing and surgical edits route to the configured fast code model. High-consequence architecture, complex concurrency, and security reviews route to deep reasoning models.
-- **Ownership:** You own every subagent's output. Review the diff yourself; never pass through unverified subagent summaries.
-- **Fresh delegates over interrupt chains:** Interrupt-chained resumes silently drop directives. Launch a fresh subagent with consolidated scope rather than trusting stale resume states.
-- **Second opinions:** For high-stakes architectural validation, run the identical prompt against a different model family. Cross-model agreement is high signal.
-
----
-
-## Harness Mappings
-
-dzstack runs portably across Cursor, Antigravity, Claude Code, Codex, OpenCode, and Pi. See [`references/harnesses.md`](references/harnesses.md) for canonical skill directories, workspace transcript locations, subagent tools, and structured-question mappings:
-
-- **Subagents:** `Task` in Cursor, `invoke_subagent` in Antigravity, `Agent` in Claude Code (`subagent_type: "daz-agent"`), `spawn_agent` in Codex, `task` in OpenCode, or sequential execution in single-threaded harnesses. If `daz-agent` is not registered, start the subagent prompt with: *"Read skills/daz-mode/SKILL.md in full, including its Principles index, before executing."*
-- **Worktree Isolation:** Concurrent subagents must execute in dedicated git worktrees (`git worktree add`) or isolated branch directories so file modifications never collide.
-- **Model Settings:** `~/.cursor/rules/daz-models.mdc` in Cursor; `~/.agents/daz-models.md` in Antigravity, Claude Code, Codex, OpenCode, and Pi (with optional repo-local `.dzstack/models.md` override).
-- **Structured Questions:** `AskQuestion` in Cursor, `ask_question` in Antigravity, `AskUserQuestion` in Claude Code, `question` in OpenCode, or a numbered list in chat.
-- **Skill Directories:** Linked via `scripts/link.sh`. Hidden skills (principles, playbook-only tools) carry both `disable-model-invocation: true` and `agents/openai.yaml` with `allow_implicit_invocation: false`.
-- **MCP Integration:** Discover and use active Model Context Protocol (MCP) tools dynamically (browser automation, GitHub/Gitea, issue trackers, observability) without hardcoded assumptions.
-
----
-
-## Writing the Reply
-
-Write the reply clean as you draft it. Avoid conversational fluff and AI formatting tells:
-
-- **Short declarative sentences.** One thought per sentence, ended with a period.
-- **No long-dash character (`—`).** Use standard periods or commas.
-- **No colon as a mid-sentence connector.** A colon before an enumerated list is fine.
-- **Terse is not an excuse to drop content.** Keep all relevant technical trade-offs, architecture choices, and open decisions.
-- **Frame impact for consumer and maintainer:**
-  - *The Consumer:* What changes for the user or calling code.
-  - *The Maintainer:* What the next engineer inheriting this codebase needs to know.
-- **Evidence-labeled claims:** Every technical assertion must be labeled in the same sentence as `[measured]`, `[inferred]`, or `[observed]`.
-- **Never fabricate citations:** Link only real files, commits, and artifacts produced or inspected this session.
-
----
-
-## Comments
-
-- Write clean comments as you code.
-- **Purge narration:** Delete comments that merely restate what code does (`// set user id`, `// loop through list`).
-- **Keep only non-obvious *why*:** Document external platform quirks, protocol edge cases, or non-obvious mathematical invariants that the code itself cannot express.
-- **No phase markers in tests:** Test scripts get zero phase narration (`// Phase 1: setup`). Descriptive assertion messages document the step.
-- **Educational pattern tags:** When introducing a structural design pattern, document it with a single-line tag: `// Pattern: <Canonical Name> - <1-line rationale>`.
-
----
-
-## Playbook Router
-
-Every task maps to one playbook, loaded as a checklist before execution. Pick the first row that fits.
-
-| Task | Route when | Playbook |
-|---|---|---|
-| **Ideation** | Brainstorming, feasibility, roadmap; no code yet | `playbooks/ideation.md` |
-| **Investigation** | Read-only: how does X work, why is Y, should we do X or Y | `playbooks/investigation.md` |
-| **Prototype** | A throwaway sketch to settle a design or an empirical fork | `playbooks/prototype.md` |
-| **Feature** | New or changed behavior, built from a named data shape | `playbooks/feature.md` |
-| **Bug fix** | A defect to reproduce, root-cause and fix | `playbooks/bug-fix.md` |
-| **Refactoring** | Structure changes, behavior does not | `playbooks/refactoring.md` |
-| **UI parity** | Visual bug, layout match, styling migration verified by pixels or DOM metrics | `playbooks/ui-parity.md` |
-| **Perf issue** | A measured slowness, fixed once against a baseline | `playbooks/perf-issue.md` |
-| **Hillclimb** | Sustained improvement of one metric against a target, one change per measurement | `playbooks/hillclimb.md` |
-| **Runtime forensics** | Diagnose a live symptom (leak, spin, glitch) by instrumenting it; diagnosis, not fix | `playbooks/runtime-forensics.md` |
-| **Trace forensics** | Diagnose a captured profile, trace or heap snapshot; diagnosis, not fix | `playbooks/trace-forensics.md` |
-| **Multi-phase plan** | Work spanning phases or stacked PRs; the plan is the deliverable | `playbooks/multi-phase-plan.md` |
-| **Autonomous run** | One long task driven to a checkable exit predicate ("run until done") | `playbooks/autonomous-run.md` |
-| **Orchestrate** | A standing multi-day program with many PRs and subagents, one coordinator | `playbooks/orchestrate.md` |
-| **Autopilot-full** | A queue of independent PRs, each owner merges after a clean swarm verdict | `playbooks/autopilot-full.md` |
-| **Autopilot-stack** | A queue built and verified autonomously, handed over as one stack to land | `playbooks/autopilot-stack.md` |
-| **Babysit** | Get a PR or stack green: conflicts, review threads, CI ("check on PR X") | `playbooks/babysit.md` |
-| **Shipping** | Verify a green stack per PR and land the contiguous verified run | `playbooks/shipping.md` |
-| **Opening a PR** | The last step of every coding playbook | `playbooks/opening-a-pr.md` |
-| **Session pickup** | Resume or take over a prior agent's work from its trail | `playbooks/session-pickup.md` |
-| **Pause safely** | Explicit pause, going offline, restart or imminent compaction | `playbooks/pause-safely.md` |
-| **Authoring a skill** | Writing or changing a SKILL.md | `playbooks/authoring-a-skill.md` |
-| **Eval** | Measure how a skill, structure or prompt change affects agent behavior | `playbooks/eval.md` |
-| **Worktree cleanup** | Reclaim disk: prune merged or abandoned worktrees and stale simulators | `playbooks/worktree-cleanup.md` |
-
-PR, CI and merge steps go through the forge the repository uses (GitHub, Gitea, Origin): resolve it once per task with `references/forges.md`.
-
-### The `figure-it-out` Fallback
-If an incoming request is novel, cross-cutting, or does not match any bundled playbook, do not drop engineering rigor. Route to the **figure-it-out** playbook to synthesize a bespoke, verifiable checklist before touching code.
+PR and CI steps go through the repo's forge: [`references/forges.md`](references/forges.md). Large, novel or cross-cutting work with no fitting playbook: use `figure-it-out`.

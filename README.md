@@ -17,7 +17,7 @@ Token-efficient, high-rigor agent engineering stack for Cursor, Claude Code, Ant
 - **Single-Model Default / Multi-Harness Portability:** Runs seamlessly in single-provider harnesses (such as Claude Code) without requiring multi-model fan-out, while supporting multi-model bake-offs when configured.
 - **Empirical Decisions Over Speculation:** If behavior, layout, performance, or edge cases can be proven by executing a 10-line script or test, run the code rather than asking the user.
 - **5 Mandatory UI States:** Every UI component must prove default, loading (fixed geometry), empty (actionable CTA), error (retryable), and stress (text overflow, mobile 375px / desktop 1280px).
-- **Prose & Code Hygiene:** Zero conversational filler, no sycophancy, no narrative comments, and evidence-labeled claims (`[measured]`, `[inferred]`, `[observed]`).
+- **Prose & Code Hygiene:** Zero conversational filler, no sycophancy, no narrative comments, and claims marked measured or inferred where it matters.
 
 ---
 

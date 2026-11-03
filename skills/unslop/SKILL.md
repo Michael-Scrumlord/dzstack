@@ -1,6 +1,6 @@
 ---
 name: unslop
-description: Eliminate AI tells, conversational padding, hyperbolic jargon, and token-wasting fluff. Must always apply to all prose, PRs, and messages.
+description: Remove AI tells, padding and filler from prose, PRs and messages.
 ---
 
 # Unslop

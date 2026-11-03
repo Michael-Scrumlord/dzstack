@@ -1,6 +1,6 @@
 ---
 name: setup-dzstack
-description: Configure reasoning budgets and role-to-model assignments for Daz Mode. Writes cross-harness model settings with hierarchical inheritance, modern thinking parameters, and invocation roster support. Use for /setup-dzstack, /dz-budget, "configure dzstack models", or changing model choices.
+description: Configure role-to-model assignments and reasoning budgets for daz-mode. Use for /setup-dzstack, /dz-budget, or changing dzstack model choices.
 ---
 
 # Setup dzstack

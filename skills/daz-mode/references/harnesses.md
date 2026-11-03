@@ -34,3 +34,9 @@
 | **Structured question** | `AskQuestion` | `ask_question` | `AskUserQuestion` | Numbered options in chat | `question` | Numbered options in chat. |
 
 **Nesting.** Some harnesses and versions give a subagent no spawn tool. Plan as if none does. The root spawns owners, verifiers and audit passes, and an owner never counts on spawning its reviewer.
+
+## 4. Setup notes
+
+- **No `daz-agent` registered:** start the subagent prompt with "Read skills/daz-mode/SKILL.md before executing."
+- **Model settings:** `~/.cursor/rules/daz-models.mdc` in Cursor, `~/.agents/daz-models.md` elsewhere; a repo-local `.dzstack/models.md` overrides both.
+- **Hidden skills** (principles, playbook-only tools) carry `disable-model-invocation: true` and `agents/openai.yaml` with `allow_implicit_invocation: false`. `scripts/link.sh` links skills into each harness.

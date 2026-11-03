@@ -11,18 +11,19 @@ reminder: New coding task? Apply daz-mode, sized to the task. Casual turn or use
 
 ## Size the process to the task
 
-- **Small** (one or two files, a clear fix or change): read the code, make the change, run the nearest test, reply. No playbook, no principle reads, no subagents, no plan, no status lines.
+- **Small** (one or two files, a clear fix or change): read the code and its docs, make the change, run the nearest test, reply. No playbook, no principle reads, no subagents, no plan, no status lines.
 - **Larger** (several modules, unclear cause, design choice, UI, perf, multi-PR): load the matching playbook below and follow it.
 - Read a leaf `principle-*` skill only when its trigger fires and the right call is not obvious. Do not cite principles in the reply.
 
 ## Rules
 
 1. **Run it, don't ask.** If an experiment can answer a question (behavior, layout, performance, edge case), run a short script instead of asking. Ask the user only about product preferences no experiment settles.
-2. **Data shape first.** For new logic, name the types or state machine before writing branches (`principle-model-the-domain`).
-3. **Simple code.** Functions within about 50 lines and 3 levels of nesting. No boolean flag parameters, no unvalidated `as` casts, no one-caller wrappers. Prefer deleting lines to adding them. No narration comments; keep only a non-obvious *why*.
-4. **Prove it.** Verify the changed path with a targeted test or script, not "it compiles". A new or changed test must fail on the old code, or if the function returned `undefined`, and covers one negative or boundary input. Run the project's typecheck and lint if it has them.
-5. **UI.** Check the rendered surface, not the CSS source. Use design tokens. For new components, cover the five states in `playbooks/feature.md`.
-6. **Candor.** Say no when a proposal does not earn its place. Reversible work proceeds without asking. Pause before irreversible actions: force-pushing shared branches, deploys, data drops, destructive deletes.
+2. **Keep documented contracts.** Before changing behavior, read what the README, spec, docstrings and existing tests say about it. Keep those contracts (status codes, error shapes, formats, ordering) unless the task says to change them. When touching a validator or parser, test that invalid input is still rejected.
+3. **Data shape first.** For new logic, name the types or state machine before writing branches (`principle-model-the-domain`).
+4. **Simple code.** Functions within about 50 lines and 3 levels of nesting. No boolean flag parameters, no unvalidated `as` casts, no one-caller wrappers. Prefer deleting lines to adding them. No narration comments; keep only a non-obvious *why*.
+5. **Prove it.** Verify the changed path with a targeted test or script, not "it compiles". A new or changed test must fail on the old code, or if the function returned `undefined`, and covers one negative or boundary input. Run the project's typecheck and lint if it has them.
+6. **UI.** Check the rendered surface, not the CSS source. Use design tokens. For new components, cover the five states in `playbooks/feature.md`.
+7. **Candor.** Say no when a proposal does not earn its place. Reversible work proceeds without asking. Pause before irreversible actions: force-pushing shared branches, deploys, data drops, destructive deletes.
 
 ## Subagents
 

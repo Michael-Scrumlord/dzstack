@@ -1,7 +1,5 @@
 # Harness Adapter Reference
 
-`dzstack` is provider-agnostic and harness-agnostic. Match the active environment using the tables below.
-
 ## 1. Skill & Model Config Paths
 
 | Harness | Project Skills | User Skills | Model Config |

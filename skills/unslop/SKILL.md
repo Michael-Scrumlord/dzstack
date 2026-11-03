@@ -10,7 +10,7 @@ Edit technical prose to eliminate AI patterns. Concise, direct, and factual comm
 ## The Process
 1. **Scan:** Identify AI stylistic tells, passive hedging, and repetitive fluff.
 2. **Rewrite:** Strip filler, preserve technical meaning, and write with active, direct phrasing.
-3. **Token Audit:** Ask: *"Does this sentence earn its token cost?"* If it can be stated in fewer words or replaced with a concrete metric, do so.
+3. **Token Audit:** Ask: *"Does this sentence earn its token cost?"* Cut throat-clearing. Prefer a table or list over paragraphs of narrative.
 
 ---
 
@@ -41,10 +41,3 @@ Edit technical prose to eliminate AI patterns. Concise, direct, and factual comm
 - **Plain verbs over fancy synonyms:** Replace *utilize* with *use*, *leverage* with *use*, *facilitate* with *help*, *in order to* with *to*.
 - **Active voice:** Prefer active constructions: *"the parser validates the token"* instead of *"the token is validated by the parser"*.
 
----
-
-## Token Efficiency Rule
-
-Every token spent is a tax on context window capacity and reading latency.
-- Cut introductory and concluding throat-clearing.
-- Prefer a compact markdown table or bulleted specification over three paragraphs of narrative prose.

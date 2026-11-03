@@ -3,6 +3,7 @@
 // Exits 1 and lists every problem; prints one line when clean.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const root = join(dirname(new URL(import.meta.url).pathname), "..");
 const problems = [];
@@ -128,7 +129,19 @@ for (const path of codeFiles) {
   }
 }
 
-const sickoAgent = readFileSync(join(root, "agents", "comment-sicko.md"), "utf8");
+// The pack ships generic: no owner names or home-infrastructure hosts. Only the plugin author line may name a person.
+const ownerTokens = /michael|sirius|scrumlord|fretfulalloy|mikestand/i;
+const ownerAllow = { ".cursor-plugin/plugin.json": ['"name": "Michael Daza"'] };
+const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
+for (const where of tracked) {
+  if (where === "scripts/check.mjs" || !existsSync(join(root, where))) continue;
+  const allowed = ownerAllow[where] ?? [];
+  readFileSync(join(root, where), "utf8").split("\n").forEach((line, i) => {
+    if (ownerTokens.test(line) && !allowed.some((a) => line.trim() === a)) add(`${where}:${i + 1}: names the owner or their setup; dzstack ships generic`);
+  });
+}
+
+const sickoAgent =readFileSync(join(root, "agents", "comment-sicko.md"), "utf8");
 const sickoRef = readFileSync(join(skillsDir, "no-comments", "references", "comment-sicko.md"), "utf8");
 if (sickoAgent !== sickoRef) add("agents/comment-sicko.md and skills/no-comments/references/comment-sicko.md are out of sync");
 

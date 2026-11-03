@@ -1,4 +1,4 @@
-# Runs on Sirius's Gitea runner for every push and pull request. The GitHub copy waits for it to pass.
+# Runs on the Gitea runner for every push and pull request.
 name: check
 on: [push, pull_request]
 

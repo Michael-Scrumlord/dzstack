@@ -1,6 +1,6 @@
 ---
 name: dzstack
-description: Alias for /daz-mode. Activates Michael's agent engineering stack (daz-mode) for concise responses, domain-first architecture, compact code, and rigorous verification. Use for /dzstack.
+description: Alias for /daz-mode. Activates the dzstack engineering style for concise responses, domain-first architecture, compact code, and rigorous verification. Use for /dzstack.
 disable-model-invocation: true
 ---
 

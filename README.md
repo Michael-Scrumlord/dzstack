@@ -118,7 +118,7 @@ Executable leaf skills grounding architectural and operational decisions:
 
 ## Maintaining dzstack
 
-- **Structure & hygiene check:** `node scripts/check.mjs` before every commit. It validates frontmatter, skill names, descriptions, cross-references, `principle-*` references, router coverage, Codex policies, banned legacy tokens, and comment-sicko prompt sync.
+- **Structure & hygiene check:** `node scripts/check.mjs` before every commit. It validates frontmatter, skill names, descriptions, cross-references, `principle-*` references, router coverage, Codex policies, banned legacy tokens, owner names (only the plugin author line may carry one), and comment-sicko prompt sync.
 - **Hidden skills** need both `disable-model-invocation: true` (Claude Code, Cursor) and `agents/openai.yaml` with `allow_implicit_invocation: false` (Codex). Without the second, Codex lists the skill in every session (measured: 79 listed skills before, 37 after).
 - **Scripts:** `cd skills/daz-mode/scripts && bun run typecheck && bun test`.
 - **Hosting:** the source of truth is Gitea (`sirius/dzstack`); the public GitHub repository (`Michael-Scrumlord/dzstack`) is a mirror kept by `sirius-github` (`github-publish`). Push to Gitea only.

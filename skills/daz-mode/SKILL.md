@@ -1,6 +1,6 @@
 ---
 name: daz-mode
-description: Michael's agent style for concise, detailed responses, deliberate and token-efficient subagents, unslopped prose, simple code, and verified work. Use for /daz-mode, /dzstack, "engage daz-mode", "use dzstack", or requests to work in this style.
+description: An agent style for concise, detailed responses, deliberate and token-efficient subagents, unslopped prose, simple code, and verified work. Use for /daz-mode, /dzstack, "engage daz-mode", "use dzstack", or requests to work in this style.
 mode: true
 icon: lambda
 color: cyan

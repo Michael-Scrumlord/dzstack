@@ -1,0 +1,317 @@
+diff --git a/README.md b/README.md
+index bda34a3..3727d58 100644
+--- a/README.md
++++ b/README.md
+@@ -6,7 +6,7 @@ The projects part of our internal tracker: an in-memory store, the rules around
+ - `src/service.ts`: `createProjectService(repo, deps)` holds the rules: names are trimmed, 1-60 characters, and unique among projects (ignoring case).
+ - `src/repository.ts`: `createProjectRepository()` keeps projects in memory, in the order they were inserted.
+ 
+-`src/errors.ts` has the errors the service throws (`ValidationError`, `NotFoundError`, `ConflictError`); the handler maps them to 400, 404 and 409 with a body of `{ error, message }`.
++`src/errors.ts` has the errors the service throws (`ValidationError`, `NotFoundError`, `ConflictError`, `RestoreExpiredError`); the handler maps them to 400, 404, 409 and 410 with a body of `{ error, message }`.
+ 
+ ## Routes
+ 
+@@ -16,8 +16,14 @@ The projects part of our internal tracker: an in-memory store, the rules around
+ | `GET /projects` | 200 `{ projects }`, in creation order |
+ | `GET /projects/:id` | 200 `{ project }` |
+ | `PATCH /projects/:id` with `{ name }` | 200 `{ project }` |
+-| `DELETE /projects/:id` | 204, and the project is gone |
++| `DELETE /projects/:id` | 204; the project is soft-deleted (see below) |
++| `POST /projects/:id/restore` | 200 `{ project }` |
++| `GET /projects?includeDeleted=true` | admins only: deleted projects are listed too, anyone else gets 403 |
+ 
+ A request is `{ method, path, query?, body?, user? }` and `user` is `{ id, role }` with `role` either `"admin"` or `"member"`. A response is `{ status, body? }`.
+ 
+ Time and ids come from `deps` (`now()`, `newId()`) so tests can control them.
++
++## Soft delete
++
++Deleting a project sets its `deletedAt` to the service clock's `now()`. A deleted project is missing for `get`, `rename`, `list` and the repository's `findById`/`findAll`, unless `includeDeleted: true` is passed, and it no longer holds its name. `restore` brings it back within 30 days of the deletion (`RESTORE_WINDOW_MS`); a second deletion restarts the 30 days.
+diff --git a/src/errors.ts b/src/errors.ts
+index cedbd20..1523e2d 100644
+--- a/src/errors.ts
++++ b/src/errors.ts
+@@ -12,6 +12,13 @@ export class NotFoundError extends Error {
+   }
+ }
+ 
++export class RestoreExpiredError extends Error {
++  constructor(message = "the restore window has passed") {
++    super(message);
++    this.name = "RestoreExpiredError";
++  }
++}
++
+ export class ConflictError extends Error {
+   constructor(message: string) {
+     super(message);
+diff --git a/src/handlers.ts b/src/handlers.ts
+index a6e6de4..a556613 100644
+--- a/src/handlers.ts
++++ b/src/handlers.ts
+@@ -1,4 +1,4 @@
+-import { ConflictError, NotFoundError, ValidationError } from "./errors.ts";
++import { ConflictError, NotFoundError, RestoreExpiredError, ValidationError } from "./errors.ts";
+ import type { ProjectService } from "./service.ts";
+ 
+ export interface ApiUser {
+@@ -30,7 +30,13 @@ function route(service: ProjectService, req: ApiRequest): ApiResponse {
+   const parts = req.path.split("/").filter((part) => part !== "");
+   if (parts[0] === "projects") {
+     if (parts.length === 1) {
+-      if (req.method === "GET") return { status: 200, body: { projects: service.list() } };
++      if (req.method === "GET") {
++        const includeDeleted = req.query?.includeDeleted === "true";
++        if (includeDeleted && req.user?.role !== "admin") {
++          return { status: 403, body: { error: "forbidden", message: "only admins can list deleted projects" } };
++        }
++        return { status: 200, body: { projects: service.list({ includeDeleted }) } };
++      }
+       if (req.method === "POST") return { status: 201, body: { project: service.create({ name: readBody(req).name }) } };
+     } else if (parts.length === 2) {
+       const id = parts[1];
+@@ -40,6 +46,8 @@ function route(service: ProjectService, req: ApiRequest): ApiResponse {
+         service.delete(id);
+         return { status: 204 };
+       }
++    } else if (parts.length === 3 && parts[2] === "restore" && req.method === "POST") {
++      return { status: 200, body: { project: service.restore(parts[1]) } };
+     }
+   }
+   throw new NotFoundError("no such route");
+@@ -48,6 +56,7 @@ function route(service: ProjectService, req: ApiRequest): ApiResponse {
+ function errorResponse(err: unknown): ApiResponse {
+   if (err instanceof ValidationError) return { status: 400, body: { error: "validation_failed", message: err.message } };
+   if (err instanceof NotFoundError) return { status: 404, body: { error: "not_found", message: err.message } };
++  if (err instanceof RestoreExpiredError) return { status: 410, body: { error: "restore_expired", message: err.message } };
+   if (err instanceof ConflictError) return { status: 409, body: { error: "conflict", message: err.message } };
+   throw err;
+ }
+diff --git a/src/project.ts b/src/project.ts
+index 533a002..a519b25 100644
+--- a/src/project.ts
++++ b/src/project.ts
+@@ -2,4 +2,6 @@ export interface Project {
+   id: string;
+   name: string;
+   createdAt: number;
++  // When the project was soft-deleted (the service clock's now()), or null while it is live.
++  deletedAt: number | null;
+ }
+diff --git a/src/repository.ts b/src/repository.ts
+index 9253f37..08f29f8 100644
+--- a/src/repository.ts
++++ b/src/repository.ts
+@@ -1,13 +1,21 @@
+ import type { Project } from "./project.ts";
+ 
++export interface FindOptions {
++  includeDeleted?: boolean;
++}
++
+ export interface ProjectRepository {
+   insert(project: Project): void;
+-  findById(id: string): Project | undefined;
+-  findAll(): Project[];
++  findById(id: string, options?: FindOptions): Project | undefined;
++  findAll(options?: FindOptions): Project[];
+   update(id: string, patch: Partial<Omit<Project, "id">>): Project | undefined;
+   remove(id: string): boolean;
+ }
+ 
++function visible(row: Project, options?: FindOptions): boolean {
++  return row.deletedAt === null || options?.includeDeleted === true;
++}
++
+ // Keeps projects in memory. Everything that goes in or comes out is a copy, so callers can't change stored rows by accident.
+ export function createProjectRepository(): ProjectRepository {
+   const rows = new Map<string, Project>();
+@@ -17,12 +25,13 @@ export function createProjectRepository(): ProjectRepository {
+       if (rows.has(project.id)) throw new Error(`duplicate project id ${project.id}`);
+       rows.set(project.id, { ...project });
+     },
+-    findById(id) {
++    findById(id, options) {
+       const row = rows.get(id);
+-      return row === undefined ? undefined : { ...row };
++      if (row === undefined || !visible(row, options)) return undefined;
++      return { ...row };
+     },
+-    findAll() {
+-      return [...rows.values()].map((row) => ({ ...row }));
++    findAll(options) {
++      return [...rows.values()].filter((row) => visible(row, options)).map((row) => ({ ...row }));
+     },
+     update(id, patch) {
+       const row = rows.get(id);
+diff --git a/src/service.ts b/src/service.ts
+index 1f601c2..698a843 100644
+--- a/src/service.ts
++++ b/src/service.ts
+@@ -1,6 +1,8 @@
+-import { ConflictError, NotFoundError, ValidationError } from "./errors.ts";
++import { ConflictError, NotFoundError, RestoreExpiredError, ValidationError } from "./errors.ts";
+ import type { Project } from "./project.ts";
+-import type { ProjectRepository } from "./repository.ts";
++import type { FindOptions, ProjectRepository } from "./repository.ts";
++
++export const RESTORE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+ 
+ export interface ServiceDeps {
+   now?: () => number;
+@@ -10,9 +12,10 @@ export interface ServiceDeps {
+ export interface ProjectService {
+   create(input: { name: unknown }): Project;
+   get(id: string): Project;
+-  list(): Project[];
++  list(options?: FindOptions): Project[];
+   rename(id: string, name: unknown): Project;
+   delete(id: string): void;
++  restore(id: string): Project;
+ }
+ 
+ function cleanName(raw: unknown): string {
+@@ -37,7 +40,7 @@ export function createProjectService(repo: ProjectRepository, deps: ServiceDeps
+     create(input) {
+       const name = cleanName(input.name);
+       assertNameFree(name);
+-      const project: Project = { id: newId(), name, createdAt: now() };
++      const project: Project = { id: newId(), name, createdAt: now(), deletedAt: null };
+       repo.insert(project);
+       return project;
+     },
+@@ -46,8 +49,8 @@ export function createProjectService(repo: ProjectRepository, deps: ServiceDeps
+       if (project === undefined) throw new NotFoundError();
+       return project;
+     },
+-    list() {
+-      return repo.findAll();
++    list(options) {
++      return repo.findAll(options);
+     },
+     rename(id, rawName) {
+       const name = cleanName(rawName);
+@@ -56,7 +59,16 @@ export function createProjectService(repo: ProjectRepository, deps: ServiceDeps
+       return repo.update(id, { name }) as Project;
+     },
+     delete(id) {
+-      if (!repo.remove(id)) throw new NotFoundError();
++      if (repo.findById(id) === undefined) throw new NotFoundError();
++      repo.update(id, { deletedAt: now() });
++    },
++    restore(id) {
++      const project = repo.findById(id, { includeDeleted: true });
++      if (project === undefined) throw new NotFoundError();
++      if (project.deletedAt === null) throw new ConflictError("project is not deleted");
++      if (now() - project.deletedAt > RESTORE_WINDOW_MS) throw new RestoreExpiredError();
++      assertNameFree(project.name, id);
++      return repo.update(id, { deletedAt: null }) as Project;
+     },
+   };
+ }
+diff --git a/test/handlers.test.ts b/test/handlers.test.ts
+index 5d0cc19..b4c3128 100644
+--- a/test/handlers.test.ts
++++ b/test/handlers.test.ts
+@@ -41,3 +41,16 @@ test("deleting answers 204 and the project is gone", () => {
+   assert.equal(call({ method: "GET", path: "/projects/p1" }).status, 404);
+   assert.equal(call({ method: "DELETE", path: "/projects/p1" }).status, 404);
+ });
++
++test("restore and the admin listing", () => {
++  const call = api();
++  call({ method: "POST", path: "/projects", body: { name: "Apollo" } });
++  call({ method: "DELETE", path: "/projects/p1" });
++  const query = { includeDeleted: "true" };
++  assert.equal(call({ method: "GET", path: "/projects", query, user: { id: "u", role: "member" } }).status, 403);
++  const all = call({ method: "GET", path: "/projects", query, user: { id: "u", role: "admin" } });
++  assert.equal((all.body as any).projects[0].deletedAt, 5000);
++  assert.equal(call({ method: "POST", path: "/projects/p1/restore" }).status, 200);
++  assert.equal(call({ method: "GET", path: "/projects/p1" }).status, 200);
++  assert.equal(call({ method: "POST", path: "/projects/p1/restore" }).status, 409);
++});
+diff --git a/test/repository.test.ts b/test/repository.test.ts
+index fb7ac1c..9a1b2bb 100644
+--- a/test/repository.test.ts
++++ b/test/repository.test.ts
+@@ -4,8 +4,8 @@ import { createProjectRepository } from "../src/repository.ts";
+ 
+ test("stores projects and finds them again", () => {
+   const repo = createProjectRepository();
+-  repo.insert({ id: "a", name: "Alpha", createdAt: 1 });
+-  repo.insert({ id: "b", name: "Beta", createdAt: 2 });
++  repo.insert({ id: "a", name: "Alpha", createdAt: 1, deletedAt: null });
++  repo.insert({ id: "b", name: "Beta", createdAt: 2, deletedAt: null });
+   assert.equal(repo.findById("a")?.name, "Alpha");
+   assert.equal(repo.findById("zzz"), undefined);
+   assert.deepEqual(repo.findAll().map((p) => p.id), ["a", "b"]);
+@@ -13,7 +13,7 @@ test("stores projects and finds them again", () => {
+ 
+ test("hands out copies", () => {
+   const repo = createProjectRepository();
+-  repo.insert({ id: "a", name: "Alpha", createdAt: 1 });
++  repo.insert({ id: "a", name: "Alpha", createdAt: 1, deletedAt: null });
+   const found = repo.findById("a");
+   assert.ok(found);
+   found.name = "changed";
+@@ -22,10 +22,20 @@ test("hands out copies", () => {
+ 
+ test("updates and removes", () => {
+   const repo = createProjectRepository();
+-  repo.insert({ id: "a", name: "Alpha", createdAt: 1 });
++  repo.insert({ id: "a", name: "Alpha", createdAt: 1, deletedAt: null });
+   assert.equal(repo.update("a", { name: "Alpha 2" })?.name, "Alpha 2");
+   assert.equal(repo.update("zzz", { name: "x" }), undefined);
+   assert.equal(repo.remove("a"), true);
+   assert.equal(repo.remove("a"), false);
+   assert.equal(repo.findById("a"), undefined);
+ });
++
++test("skips deleted projects unless asked for", () => {
++  const repo = createProjectRepository();
++  repo.insert({ id: "a", name: "Alpha", createdAt: 1, deletedAt: null });
++  repo.insert({ id: "b", name: "Beta", createdAt: 2, deletedAt: 10 });
++  assert.deepEqual(repo.findAll().map((p) => p.id), ["a"]);
++  assert.deepEqual(repo.findAll({ includeDeleted: true }).map((p) => p.id), ["a", "b"]);
++  assert.equal(repo.findById("b"), undefined);
++  assert.equal(repo.findById("b", { includeDeleted: true })?.deletedAt, 10);
++});
+diff --git a/test/service.test.ts b/test/service.test.ts
+index 1f64172..aef33fc 100644
+--- a/test/service.test.ts
++++ b/test/service.test.ts
+@@ -1,6 +1,6 @@
+ import { test } from "node:test";
+ import assert from "node:assert/strict";
+-import { ConflictError, NotFoundError, ValidationError } from "../src/errors.ts";
++import { ConflictError, NotFoundError, RestoreExpiredError, ValidationError } from "../src/errors.ts";
+ import { createProjectRepository } from "../src/repository.ts";
+ import { createProjectService } from "../src/service.ts";
+ 
+@@ -55,3 +55,26 @@ test("a deleted project is gone, and its name is free again", () => {
+   assert.deepEqual(service.list(), []);
+   assert.equal(service.create({ name: "A" }).name, "A");
+ });
++
++test("restore brings a deleted project back within 30 days", () => {
++  const { service, setTime } = setup();
++  const a = service.create({ name: "A" });
++  setTime(2000);
++  service.delete(a.id);
++  assert.deepEqual(service.list({ includeDeleted: true }).map((p) => p.deletedAt), [2000]);
++  setTime(2000 + 30 * 24 * 60 * 60 * 1000);
++  assert.equal(service.restore(a.id).deletedAt, null);
++  assert.equal(service.get(a.id).name, "A");
++});
++
++test("restore is refused after 30 days, for a live project, and when the name was taken", () => {
++  const { service, setTime } = setup();
++  const a = service.create({ name: "A" });
++  assert.throws(() => service.restore(a.id), ConflictError);
++  service.delete(a.id);
++  service.create({ name: "a" });
++  assert.throws(() => service.restore(a.id), ConflictError);
++  setTime(2000 + 30 * 24 * 60 * 60 * 1000);
++  assert.throws(() => service.restore(a.id), RestoreExpiredError);
++  assert.throws(() => service.restore("nope"), NotFoundError);
++});

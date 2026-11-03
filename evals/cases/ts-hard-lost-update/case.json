@@ -1,0 +1,7 @@
+{
+  "title": "A bug report: edits occasionally vanish when two people save the same document at the same time",
+  "kind": "bug-fix",
+  "tags": ["hard", "typescript", "bug-fix", "concurrency"],
+  "max_turns": 120,
+  "timeout_s": 2400
+}

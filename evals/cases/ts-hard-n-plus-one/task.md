@@ -1,0 +1,1 @@
+The projects page is slow for our big customers: about 8 seconds to load for a team with a couple of hundred projects, and clicking to the next page takes just as long as the first load. Please make `GET /projects` fast without changing what it returns. Tests run with `npm test`; `npm run profile` shows what the page costs.

@@ -1,0 +1,50 @@
+diff --git a/src/search-box.ts b/src/search-box.ts
+index 90da956..95227cf 100644
+--- a/src/search-box.ts
++++ b/src/search-box.ts
+@@ -28,9 +28,12 @@ export interface SearchBox {
+ export function createSearchBox(fetchResults: FetchResults, options: SearchBoxOptions = {}): SearchBox {
+   const minLength = options.minLength ?? 2;
+   const store = createStore<SearchState>({ query: "", results: [], loading: false, error: null });
++  // Bumped on every setQuery, so an answer can tell whether it is still the latest.
++  let latest = 0;
+ 
+   function setQuery(text: string): void {
+     const query = normalizeQuery(text);
++    const request = ++latest;
+     if (query.length < minLength) {
+       store.set({ query: text, results: [], loading: false, error: null });
+       return;
+@@ -38,10 +41,10 @@ export function createSearchBox(fetchResults: FetchResults, options: SearchBoxOp
+     store.set({ query: text, loading: true, error: null });
+     fetchResults(query).then(
+       (results) => {
+-        store.set({ results, loading: false });
++        if (request === latest) store.set({ results, loading: false });
+       },
+       (err) => {
+-        store.set({ results: [], loading: false, error: describeError(err) });
++        if (request === latest) store.set({ results: [], loading: false, error: describeError(err) });
+       },
+     );
+   }
+diff --git a/test/search-box.test.ts b/test/search-box.test.ts
+index a616fce..9a8207d 100644
+--- a/test/search-box.test.ts
++++ b/test/search-box.test.ts
+@@ -60,3 +60,15 @@ test("listeners hear each change", async () => {
+   box.setQuery("mugs");
+   assert.deepEqual(states, [true, false]);
+ });
++
++test("an answer to an earlier query does not replace the newer results", async () => {
++  const pending: Array<(r: SearchResult[]) => void> = [];
++  const box = createSearchBox(() => new Promise<SearchResult[]>((resolve) => pending.push(resolve)));
++  box.setQuery("mu");
++  box.setQuery("mug");
++  pending[1](items("Red mug"));
++  await settle();
++  pending[0](items("Muffin tin"));
++  await settle();
++  assert.deepEqual(box.getState().results, items("Red mug"));
++});

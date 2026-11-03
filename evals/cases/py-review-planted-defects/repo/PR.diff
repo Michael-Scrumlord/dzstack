@@ -1,0 +1,185 @@
+From d1571bbcfb2a7b45a3391f7beb6c242b854f377e Mon Sep 17 00:00:00 2001
+From: Sam Okafor <sam@example.invalid>
+Date: Mon, 2 Mar 2026 10:15:00 -0800
+Subject: [PATCH] Admin tools: member lookup, bulk checkout, overdue report
+
+The front desk asked for three things:
+
+- a lookup box that finds members by part of their name
+- checking out a stack of books for one member in a single request, all of
+  them or none
+- a list of overdue loans for the weekly reminder emails. A loan counts as
+  overdue once it is more than 3 days past its due date (3 days of grace).
+
+Adds GET /members/search, POST /loans/bulk and GET /reports/overdue.
+Tests cover the new functions and the search route.
+---
+ app/loans.py        | 21 +++++++++++++++++++
+ app/members.py      |  6 ++++++
+ app/reports.py      | 30 +++++++++++++++++++++++++++
+ app/routes.py       | 10 ++++++++-
+ tests/test_admin.py | 49 +++++++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 115 insertions(+), 1 deletion(-)
+
+diff --git a/app/loans.py b/app/loans.py
+index e275828..96b818a 100644
+--- a/app/loans.py
++++ b/app/loans.py
+@@ -46,3 +46,24 @@ def return_book(conn, loan_id, today):
+         raise LoanError(f"loan {loan_id} is not open")
+     conn.execute("UPDATE loans SET returned_on = ? WHERE id = ?", (today.isoformat(), loan_id))
+     conn.commit()
++
++
++def checkout_many(conn, member_id, book_ids, today):
++    """Check out several books for one member in a single request: all of them, or none."""
++    if not book_ids:
++        raise LoanError("no books given")
++    if len(active_loans(conn, member_id)) + len(book_ids) > MAX_LOANS:
++        raise LoanError(f"member {member_id} would have more than {MAX_LOANS} books out")
++    loaned_on = today.isoformat()
++    due_on = (today + timedelta(days=LOAN_DAYS)).isoformat()
++    loan_ids = []
++    for book_id in book_ids:
++        if not is_available(conn, book_id):
++            raise LoanError(f"book {book_id} is already on loan")
++        cur = conn.execute(
++            "INSERT INTO loans (book_id, member_id, loaned_on, due_on) VALUES (?, ?, ?, ?)",
++            (book_id, member_id, loaned_on, due_on),
++        )
++        loan_ids.append(cur.lastrowid)
++    conn.commit()
++    return loan_ids
+diff --git a/app/members.py b/app/members.py
+index 78a77e0..dc5410c 100644
+--- a/app/members.py
++++ b/app/members.py
+@@ -9,3 +9,9 @@ def add_member(conn, name, email):
+ 
+ def get_member(conn, member_id):
+     return conn.execute("SELECT id, name, email FROM members WHERE id = ?", (member_id,)).fetchone()
++
++
++def search_members(conn, text):
++    """Members whose name contains `text`, for the admin lookup box."""
++    sql = f"SELECT id, name, email FROM members WHERE name LIKE '%{text}%' ORDER BY name"
++    return conn.execute(sql).fetchall()
+diff --git a/app/reports.py b/app/reports.py
+new file mode 100644
+index 0000000..ec40b37
+--- /dev/null
++++ b/app/reports.py
+@@ -0,0 +1,30 @@
++"""Reports for the front desk."""
++from datetime import date
++
++GRACE_DAYS = 3  # a loan is overdue once it is MORE than this many days past due
++ORDER_COLUMNS = {'due': 'l.due_on', 'member': 'm.name', 'title': 'b.title'}
++
++
++def _days_late(row, today):
++    return (today - date.fromisoformat(row['due_on'])).days
++
++
++def overdue_loans(conn, today, order='due'):
++    """Open loans that are more than GRACE_DAYS past their due date."""
++    column = ORDER_COLUMNS.get(order, 'l.due_on')
++    sql = (
++        "SELECT l.id, l.due_on, m.name AS member, b.title AS title "
++        "FROM loans l JOIN members m ON m.id = l.member_id JOIN books b ON b.id = l.book_id "
++        f"WHERE l.returned_on IS NULL ORDER BY {column}"
++    )
++    rows = conn.execute(sql).fetchall()
++    return [
++        {
++            'loan_id': row['id'],
++            'member': row['member'],
++            'title': row['title'],
++            'days_late': _days_late(row, today),
++        }
++        for row in rows
++        if _days_late(row, today) >= GRACE_DAYS
++    ]
+diff --git a/app/routes.py b/app/routes.py
+index 9559f0b..0142c46 100644
+--- a/app/routes.py
++++ b/app/routes.py
+@@ -1,7 +1,7 @@
+ """Request handlers. `handle` maps (method, path) to a data-access call and returns (status, body)."""
+ import re
+ 
+-from app import books, loans, members
++from app import books, loans, members, reports
+ 
+ 
+ def handle(conn, method, path, query, body, today):
+@@ -23,6 +23,14 @@ def handle(conn, method, path, query, body, today):
+         if method == "GET" and match:
+             rows = loans.active_loans(conn, int(match.group(1)))
+             return 200, {"loans": [dict(r) for r in rows]}
++        if method == "GET" and path == "/members/search":
++            found = members.search_members(conn, query.get("q", ""))
++            return 200, {"members": [dict(r) for r in found]}
++        if method == "POST" and path == "/loans/bulk":
++            ids = loans.checkout_many(conn, int(body["member_id"]), [int(b) for b in body["book_ids"]], today)
++            return 201, {"loan_ids": ids}
++        if method == "GET" and path == "/reports/overdue":
++            return 200, {"overdue": reports.overdue_loans(conn, today, query.get("order", "due"))}
+     except loans.LoanError as exc:
+         return 409, {"error": str(exc)}
+     except (KeyError, ValueError):
+diff --git a/tests/test_admin.py b/tests/test_admin.py
+new file mode 100644
+index 0000000..9f7867b
+--- /dev/null
++++ b/tests/test_admin.py
+@@ -0,0 +1,49 @@
++from datetime import date, timedelta
++
++import pytest
++
++from app import loans, members, reports
++from app.loans import LoanError
++from app.routes import handle
++
++
++def test_search_members_matches_part_of_a_name(conn):
++    members.add_member(conn, "Ada Byron", "ada@example.org")
++    members.add_member(conn, "Grace Hopper", "grace@example.org")
++    assert [m["name"] for m in members.search_members(conn, "race")] == ["Grace Hopper"]
++
++
++def test_search_route_returns_matches(conn, today):
++    members.add_member(conn, "Ada Byron", "ada@example.org")
++    status, body = handle(conn, "GET", "/members/search", {"q": "Ada"}, None, today)
++    assert status == 200 and len(body["members"]) == 1
++
++
++def test_checkout_many_makes_one_loan_per_book(conn, seeded, today):
++    member_id, book_ids = seeded
++    ids = loans.checkout_many(conn, member_id, book_ids[:3], today)
++    assert len(ids) == 3
++    assert len(loans.active_loans(conn, member_id)) == 3
++
++
++def test_checkout_many_refuses_more_than_the_limit(conn, seeded, today):
++    member_id, book_ids = seeded
++    with pytest.raises(LoanError):
++        loans.checkout_many(conn, member_id, book_ids[:6], today)
++
++
++def test_overdue_report_lists_loans_well_past_due(conn, seeded, today):
++    member_id, book_ids = seeded
++    loans.checkout(conn, member_id, book_ids[0], today - timedelta(days=30))
++    loans.checkout(conn, member_id, book_ids[1], today)
++    report = reports.overdue_loans(conn, today)
++    assert [r["title"] for r in report] == ["Book 1"]
++    assert report[0]["days_late"] == 16
++
++
++def test_overdue_report_can_be_ordered_by_title(conn, seeded, today):
++    member_id, book_ids = seeded
++    for book_id in (book_ids[2], book_ids[0]):
++        loans.checkout(conn, member_id, book_id, date(2026, 1, 1))
++    titles = [r["title"] for r in reports.overdue_loans(conn, today, order="title")]
++    assert titles == ["Book 1", "Book 3"]

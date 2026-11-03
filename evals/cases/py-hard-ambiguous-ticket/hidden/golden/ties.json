@@ -1,0 +1,43 @@
+{
+  "currency": "USD",
+  "customer": {
+    "country": "DE",
+    "name": "Tie Breakers"
+  },
+  "issued": "2026-04-30",
+  "lines": [
+    {
+      "amount_cents": 150,
+      "description": "half cent tax",
+      "quantity": "1",
+      "sku": "T1",
+      "tax_cents": 29,
+      "tax_code": "standard",
+      "unit_price_cents": 150
+    },
+    {
+      "amount_cents": 150,
+      "description": "half cent tax",
+      "quantity": "1",
+      "sku": "T2",
+      "tax_cents": 29,
+      "tax_code": "standard",
+      "unit_price_cents": 150
+    },
+    {
+      "amount_cents": 152,
+      "description": "half cent amount",
+      "quantity": "0.5",
+      "sku": "T3",
+      "tax_cents": 11,
+      "tax_code": "reduced",
+      "unit_price_cents": 303
+    }
+  ],
+  "notes": "",
+  "number": null,
+  "subtotal_cents": 452,
+  "tax_cents": 69,
+  "terms_days": 30,
+  "total_cents": 521
+}

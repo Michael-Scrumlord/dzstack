@@ -1,0 +1,1 @@
+The nightly merge in recsync is getting out of hand: with about 200,000 records it now takes over an hour, and it's been creeping up as the tables grow. Please make it fast without changing the results. The README has the rules the output has to keep. Tests run with `python3 -m pytest -q`.

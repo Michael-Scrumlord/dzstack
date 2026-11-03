@@ -1,0 +1,28 @@
+{
+  "customer": {
+    "country": "DE",
+    "name": "Tie Breakers"
+  },
+  "issued": "2026-04-30",
+  "lines": [
+    {
+      "description": "half cent tax",
+      "quantity": "1",
+      "sku": "T1",
+      "unit_price_cents": 150
+    },
+    {
+      "description": "half cent tax",
+      "quantity": "1",
+      "sku": "T2",
+      "unit_price_cents": 150
+    },
+    {
+      "description": "half cent amount",
+      "quantity": "0.5",
+      "sku": "T3",
+      "tax_code": "reduced",
+      "unit_price_cents": 303
+    }
+  ]
+}

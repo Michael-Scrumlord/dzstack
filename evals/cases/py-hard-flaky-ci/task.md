@@ -1,0 +1,1 @@
+CI on schedkit fails maybe one run in five, and it's a different test or two every time. A re-run is usually green, which is how it has been getting ignored, but the same library runs in our batch service and I don't trust it. Please find out why and fix it properly: no retries, no sleeps, no skipping tests. Tests run with `python3 -m pytest`.

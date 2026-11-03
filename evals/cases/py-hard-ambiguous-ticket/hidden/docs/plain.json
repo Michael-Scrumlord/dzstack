@@ -1,0 +1,24 @@
+{
+  "customer": {
+    "country": "DE",
+    "email": "ap@acme.example",
+    "name": "Acme GmbH"
+  },
+  "issued": "2026-03-02",
+  "lines": [
+    {
+      "description": "Pro plan, March",
+      "quantity": "1",
+      "sku": "SUB-PRO",
+      "unit_price_cents": 4900
+    },
+    {
+      "description": "Extra seat",
+      "quantity": "3",
+      "sku": "SEAT",
+      "tax_code": "reduced",
+      "unit_price_cents": 1250
+    }
+  ],
+  "notes": "PO 77"
+}

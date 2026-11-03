@@ -1,0 +1,44 @@
+{
+  "currency": "GBP",
+  "customer": {
+    "country": "GB",
+    "name": "Brightside Ltd"
+  },
+  "format_version": 1,
+  "issued": "2026-02-27",
+  "lines": [
+    {
+      "amount_cents": 71250,
+      "description": "Consulting, a very long description that will not fit its column",
+      "quantity": "7.5",
+      "sku": "CONSULT",
+      "tax_cents": 14250,
+      "tax_code": "standard",
+      "unit_price_cents": 9500
+    },
+    {
+      "amount_cents": 18755,
+      "description": "Travel",
+      "quantity": "1",
+      "sku": "TRAVEL",
+      "tax_cents": 0,
+      "tax_code": "exempt",
+      "unit_price_cents": 18755
+    },
+    {
+      "amount_cents": 3998,
+      "description": "Handbook",
+      "quantity": "2",
+      "sku": "BOOK",
+      "tax_cents": 200,
+      "tax_code": "reduced",
+      "unit_price_cents": 1999
+    }
+  ],
+  "notes": "",
+  "number": "2026-0002",
+  "subtotal_cents": 94003,
+  "tax_cents": 14450,
+  "terms_days": 14,
+  "total_cents": 108453
+}

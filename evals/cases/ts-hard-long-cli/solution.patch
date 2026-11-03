@@ -1,0 +1,609 @@
+diff --git a/README.md b/README.md
+index a2501ed..04d0fa2 100644
+--- a/README.md
++++ b/README.md
+@@ -21,5 +21,6 @@ npm test
+ | `src/commands/` | one file per command |
+ | `src/storage.ts` | reading and writing the store file, and the file-system functions it uses |
+ | `src/task.ts`, `format.ts`, `text.ts`, `errors.ts` | the types, the table `list` prints, text helpers, the errors that become exit codes |
++| `src/dates.ts`, `validate.ts`, `journal.ts` | date arguments, value checks (titles, priorities, tags, notes, ids), the undo journal |
+ 
+ Commands are functions `(ctx, args) => exit code`. They throw a `UsageError` (exit code 2) or a `CommandError` (exit code 1) with just the message; `run` adds the `tasks: <command>: ` prefix.
+diff --git a/src/cli.ts b/src/cli.ts
+index bba7a52..e051bb1 100644
+--- a/src/cli.ts
++++ b/src/cli.ts
+@@ -1,5 +1,11 @@
++import { isoToDays } from "./dates.ts";
+ import { CliError, UsageError } from "./errors.ts";
++import { add } from "./commands/add.ts";
++import { done } from "./commands/done.ts";
++import { edit } from "./commands/edit.ts";
+ import { list } from "./commands/list.ts";
++import { report } from "./commands/report.ts";
++import { undo } from "./commands/undo.ts";
+ import { help, USAGE } from "./commands/help.ts";
+ import { loadFsApi, readStore, writeStore } from "./storage.ts";
+ import type { FsApi } from "./storage.ts";
+@@ -24,7 +30,12 @@ export interface Context {
+ export type Command = (ctx: Context, args: string[]) => number | void | Promise<number | void>;
+ 
+ export const COMMANDS: Record<string, Command> = {
++  add,
++  done,
++  undo,
++  edit,
+   list,
++  report,
+   help,
+ };
+ 
+@@ -69,7 +80,12 @@ export async function run(argv: string[], io: Io): Promise<number> {
+     const ctx: Context = {
+       io,
+       storePath,
+-      today: () => io.env.TASKS_TODAY ?? localDate(new Date()),
++      today: () => {
++        const set = io.env.TASKS_TODAY;
++        if (set === undefined) return localDate(new Date());
++        if (isoToDays(set) === undefined) throw new UsageError("TASKS_TODAY must be a date like 2026-05-01");
++        return set;
++      },
+       load: () => readStore(storePath, fs),
+       save: (store) => writeStore(storePath, store, fs),
+     };
+diff --git a/src/commands/add.ts b/src/commands/add.ts
+new file mode 100644
+index 0000000..712669c
+--- /dev/null
++++ b/src/commands/add.ts
+@@ -0,0 +1,35 @@
++import { parseOptions } from "../args.ts";
++import { parseDate } from "../dates.ts";
++import { record } from "../journal.ts";
++import { parseNote, parsePriority, parseTags, parseTitle } from "../validate.ts";
++import type { Context } from "../cli.ts";
++import type { Task } from "../task.ts";
++
++/** `tasks add <title...> [--due DATE] [--priority P] [--tag TAG]... [--note TEXT]` */
++export function add(ctx: Context, args: string[]): number {
++  const { positionals, values, lists } = parseOptions(args, { due: "string", priority: "string", tag: "list", note: "string" });
++  const title = parseTitle(positionals.join(" "), "missing title");
++  const priority = values.priority === undefined ? "normal" : parsePriority(values.priority);
++  const due = values.due === undefined ? null : parseDate(values.due, ctx.today());
++  const tags = parseTags(lists.tag ?? []);
++  const note = values.note === undefined ? null : parseNote(values.note);
++
++  const store = ctx.load();
++  const task: Task = {
++    id: store.nextId,
++    title,
++    status: "open",
++    priority,
++    due,
++    tags,
++    note,
++    createdAt: ctx.today(),
++    completedAt: null,
++  };
++  store.nextId += 1;
++  store.tasks.push(task);
++  record(store, { op: "add", id: task.id });
++  ctx.save(store);
++  ctx.io.stdout(`Added #${task.id}: ${task.title}${due ? ` (due ${due})` : ""}\n`);
++  return 0;
++}
+diff --git a/src/commands/done.ts b/src/commands/done.ts
+new file mode 100644
+index 0000000..52f9f8c
+--- /dev/null
++++ b/src/commands/done.ts
+@@ -0,0 +1,40 @@
++import { parseOptions } from "../args.ts";
++import { CommandError, UsageError } from "../errors.ts";
++import { record } from "../journal.ts";
++import { findTask } from "../task.ts";
++import { parseId } from "../validate.ts";
++import type { Context } from "../cli.ts";
++
++/** `tasks done <id>...` */
++export function done(ctx: Context, args: string[]): number {
++  const { positionals } = parseOptions(args, {});
++  if (positionals.length === 0) throw new UsageError("missing task id");
++  const ids = [...new Set(positionals.map(parseId))];
++
++  const store = ctx.load();
++  const tasks = ids.map((id) => {
++    const task = findTask(store, id);
++    if (!task) throw new CommandError(`no task #${id}`);
++    return task;
++  });
++
++  const today = ctx.today();
++  const lines: string[] = [];
++  const changed: number[] = [];
++  for (const task of tasks) {
++    if (task.status === "done") {
++      lines.push(`Task #${task.id} is already done`);
++      continue;
++    }
++    task.status = "done";
++    task.completedAt = today;
++    changed.push(task.id);
++    lines.push(`Done #${task.id}: ${task.title}`);
++  }
++  if (changed.length > 0) {
++    record(store, { op: "done", ids: changed });
++    ctx.save(store);
++  }
++  ctx.io.stdout(lines.map((line) => `${line}\n`).join(""));
++  return 0;
++}
+diff --git a/src/commands/edit.ts b/src/commands/edit.ts
+new file mode 100644
+index 0000000..f74a9ce
+--- /dev/null
++++ b/src/commands/edit.ts
+@@ -0,0 +1,73 @@
++import { isDeepStrictEqual } from "node:util";
++import { parseOptions } from "../args.ts";
++import { parseDate } from "../dates.ts";
++import { CommandError, UsageError } from "../errors.ts";
++import { record } from "../journal.ts";
++import { findTask } from "../task.ts";
++import { MAX_TAGS, normaliseTags, parseId, parseNote, parsePriority, parseTag, parseTags, parseTitle } from "../validate.ts";
++import type { Context } from "../cli.ts";
++import type { Task } from "../task.ts";
++
++type Editable = "title" | "due" | "priority" | "note" | "tags";
++const ORDER: Editable[] = ["title", "due", "priority", "note", "tags"];
++
++/** `tasks edit <id> [--title T] [--due DATE|none] [--priority P] [--note T] [--tag T]... [--add-tag T]... [--remove-tag T]...` */
++export function edit(ctx: Context, args: string[]): number {
++  const { positionals, values, lists } = parseOptions(args, {
++    title: "string",
++    due: "string",
++    priority: "string",
++    note: "string",
++    tag: "list",
++    "add-tag": "list",
++    "remove-tag": "list",
++  });
++  if (positionals.length === 0) throw new UsageError("missing task id");
++  const id = parseId(positionals[0] as string);
++  if (positionals.length > 1) throw new UsageError(`unexpected argument "${positionals[1]}"`);
++  if (Object.keys(values).length === 0 && Object.keys(lists).length === 0) throw new UsageError("nothing to change");
++  if (lists.tag && (lists["add-tag"] || lists["remove-tag"])) {
++    throw new UsageError("--tag cannot be combined with --add-tag or --remove-tag");
++  }
++
++  const wanted: Partial<Pick<Task, Editable>> = {};
++  if (values.title !== undefined) wanted.title = parseTitle(values.title, "title must not be empty");
++  if (values.priority !== undefined) wanted.priority = parsePriority(values.priority);
++  if (values.due !== undefined) wanted.due = values.due === "none" ? null : parseDate(values.due, ctx.today());
++  if (values.note !== undefined) wanted.note = parseNote(values.note);
++  const replaceTags = lists.tag ? parseTags(lists.tag) : undefined;
++  const addTags = (lists["add-tag"] ?? []).map(parseTag);
++  const removeTags = (lists["remove-tag"] ?? []).map(parseTag);
++  const both = addTags.find((tag) => removeTags.includes(tag));
++  if (both !== undefined) throw new UsageError(`"${both}" is both added and removed`);
++
++  const store = ctx.load();
++  const task = findTask(store, id);
++  if (!task) throw new CommandError(`no task #${id}`);
++  const missing = removeTags.find((tag) => !task.tags.includes(tag));
++  if (missing !== undefined) throw new CommandError(`task #${id} has no tag "${missing}"`);
++  if (replaceTags) wanted.tags = replaceTags;
++  else if (addTags.length > 0 || removeTags.length > 0) {
++    const tags = normaliseTags([...task.tags, ...addTags].filter((tag) => !removeTags.includes(tag)));
++    if (tags.length > MAX_TAGS) throw new CommandError(`task #${id} would have more than ${MAX_TAGS} tags`);
++    wanted.tags = tags;
++  }
++
++  const before: Partial<Pick<Task, Editable>> = {};
++  const changed: Editable[] = [];
++  for (const field of ORDER) {
++    if (!(field in wanted)) continue;
++    if (isDeepStrictEqual(task[field], wanted[field])) continue;
++    (before as Record<string, unknown>)[field] = structuredClone(task[field]);
++    changed.push(field);
++  }
++  if (changed.length === 0) {
++    ctx.io.stdout(`No changes to #${id}\n`);
++    return 0;
++  }
++  for (const field of changed) (task as Record<string, unknown>)[field] = wanted[field];
++  record(store, { op: "edit", id, before });
++  ctx.save(store);
++  ctx.io.stdout(`Edited #${id} (${changed.join(", ")})\n`);
++  return 0;
++}
+diff --git a/src/commands/help.ts b/src/commands/help.ts
+index 9ad4ab4..255b176 100644
+--- a/src/commands/help.ts
++++ b/src/commands/help.ts
+@@ -3,8 +3,13 @@ import type { Context } from "../cli.ts";
+ export const USAGE = `Usage: tasks [--store PATH] <command> [arguments]
+ 
+ Commands:
+-  list [--all]            list open tasks
+-  help                    show this text
++  add <title...> [options]  add a task
++  done <id>...              mark tasks done
++  undo                      undo the last change
++  edit <id> [options]       change a task
++  list [--all]              list open tasks
++  report [options]          summarise the tasks
++  help                      show this text
+ `;
+ 
+ export function help(ctx: Context): number {
+diff --git a/src/commands/report.ts b/src/commands/report.ts
+new file mode 100644
+index 0000000..3ae5431
+--- /dev/null
++++ b/src/commands/report.ts
+@@ -0,0 +1,69 @@
++import { parseOptions } from "../args.ts";
++import { addDays, parseDate } from "../dates.ts";
++import { UsageError } from "../errors.ts";
++import { PRIORITIES, priorityRank } from "../task.ts";
++import { parsePriority, parseTag } from "../validate.ts";
++import type { Context } from "../cli.ts";
++import type { Priority, Task } from "../task.ts";
++
++const byUrgency = (a: Task, b: Task) =>
++  (a.due as string).localeCompare(b.due as string) || priorityRank(a.priority) - priorityRank(b.priority) || a.id - b.id;
++
++function taskLine(task: Task): string {
++  const tags = task.tags.length > 0 ? ` [${task.tags.join(",")}]` : "";
++  return `  #${task.id} ${task.due} ${task.priority} ${task.title}${tags}`;
++}
++
++/** `tasks report [--format text|json] [--tag TAG] [--priority P] [--since DATE]` */
++export function report(ctx: Context, args: string[]): number {
++  const { positionals, values } = parseOptions(args, { format: "string", tag: "string", priority: "string", since: "string" });
++  if (positionals.length > 0) throw new UsageError(`unexpected argument "${positionals[0]}"`);
++  const format = values.format ?? "text";
++  if (format !== "text" && format !== "json") throw new UsageError(`invalid format "${format}" (expected text or json)`);
++  const tag = values.tag === undefined ? null : parseTag(values.tag);
++  const priority: Priority | null = values.priority === undefined ? null : parsePriority(values.priority);
++  const today = ctx.today();
++  const since = values.since === undefined ? null : parseDate(values.since, today);
++
++  const store = ctx.load();
++  const selected = store.tasks.filter(
++    (task) => (tag === null || task.tags.includes(tag)) && (priority === null || task.priority === priority) && (since === null || task.createdAt >= since),
++  );
++  const open = selected.filter((task) => task.status === "open");
++  const done = selected.filter((task) => task.status === "done");
++  const overdue = open.filter((task) => task.due !== null && task.due < today).sort(byUrgency);
++  const horizon = addDays(today, 7);
++  const dueSoon = open.filter((task) => task.due !== null && task.due >= today && task.due <= horizon).sort(byUrgency);
++  const openByPriority = Object.fromEntries(PRIORITIES.map((p) => [p, open.filter((task) => task.priority === p).length]));
++  const windowStart = addDays(today, -6);
++  const completedRecently = done.filter((task) => task.completedAt !== null && task.completedAt >= windowStart && task.completedAt <= today);
++
++  if (format === "json") {
++    const result = {
++      date: today,
++      filter: { tag, priority, since },
++      total: selected.length,
++      open: open.length,
++      done: done.length,
++      overdue: overdue.map((task) => task.id),
++      dueSoon: dueSoon.map((task) => task.id),
++      openByPriority,
++      completedLast7Days: completedRecently.length,
++    };
++    ctx.io.stdout(`${JSON.stringify(result, null, 2)}\n`);
++    return 0;
++  }
++
++  const lines = [`Report for ${today}`];
++  const filters = [tag && `tag=${tag}`, priority && `priority=${priority}`, since && `since=${since}`].filter(Boolean);
++  if (filters.length > 0) lines.push(`Filter: ${filters.join(", ")}`);
++  lines.push(`Tasks: ${selected.length} (open ${open.length}, done ${done.length})`);
++  for (const [heading, tasks] of [["Overdue", overdue], ["Due in the next 7 days", dueSoon]] as const) {
++    lines.push(`${heading} (${tasks.length}):`);
++    lines.push(...(tasks.length > 0 ? tasks.map(taskLine) : ["  none"]));
++  }
++  lines.push(`Open by priority: ${PRIORITIES.map((p) => `${p} ${openByPriority[p]}`).join(", ")}`);
++  lines.push(`Completed in the last 7 days: ${completedRecently.length}`);
++  ctx.io.stdout(`${lines.join("\n")}\n`);
++  return 0;
++}
+diff --git a/src/commands/undo.ts b/src/commands/undo.ts
+new file mode 100644
+index 0000000..68efc01
+--- /dev/null
++++ b/src/commands/undo.ts
+@@ -0,0 +1,39 @@
++import { parseOptions } from "../args.ts";
++import { CommandError, UsageError } from "../errors.ts";
++import { findTask } from "../task.ts";
++import type { Context } from "../cli.ts";
++import type { Task } from "../task.ts";
++
++/** `tasks undo`: takes back the newest journal entry. */
++export function undo(ctx: Context, args: string[]): number {
++  const { positionals } = parseOptions(args, {});
++  if (positionals.length > 0) throw new UsageError(`unexpected argument "${positionals[0]}"`);
++
++  const store = ctx.load();
++  const entry = store.journal.pop();
++  if (!entry) throw new CommandError("nothing to undo");
++
++  const lines: string[] = [];
++  if (entry.op === "add") {
++    const task = findTask(store, entry.id);
++    store.tasks = store.tasks.filter((t) => t.id !== entry.id);
++    lines.push(`Undid add #${entry.id}: ${task?.title ?? ""}`);
++  } else if (entry.op === "done") {
++    for (const id of entry.ids) {
++      const task = findTask(store, id);
++      if (!task) continue;
++      task.status = "open";
++      task.completedAt = null;
++      lines.push(`Undid done #${id}: ${task.title}`);
++    }
++  } else {
++    const task = findTask(store, entry.id);
++    if (task) {
++      Object.assign(task, structuredClone(entry.before) as Partial<Task>);
++      lines.push(`Undid edit #${entry.id}: ${task.title}`);
++    }
++  }
++  ctx.save(store);
++  ctx.io.stdout(lines.map((line) => `${line}\n`).join(""));
++  return 0;
++}
+diff --git a/src/dates.ts b/src/dates.ts
+new file mode 100644
+index 0000000..6834f19
+--- /dev/null
++++ b/src/dates.ts
+@@ -0,0 +1,54 @@
++import { UsageError } from "./errors.ts";
++
++const ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
++const RELATIVE = /^([+-])(\d{1,4})([dw])$/;
++const DAY_MS = 86_400_000;
++export const DATE_HELP = "YYYY-MM-DD, today, tomorrow, yesterday, +Nd, -Nd, +Nw or -Nw";
++
++/** Days since 1970-01-01 for a real YYYY-MM-DD date with a year from 1000 to 9999, else undefined. */
++export function isoToDays(iso: string): number | undefined {
++  const match = ISO.exec(iso);
++  if (!match) return undefined;
++  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
++  if (year < 1000) return undefined;
++  const ms = Date.UTC(year, month - 1, day);
++  const back = new Date(ms);
++  if (back.getUTCFullYear() !== year || back.getUTCMonth() !== month - 1 || back.getUTCDate() !== day) return undefined;
++  return ms / DAY_MS;
++}
++
++export function daysToIso(days: number): string | undefined {
++  const date = new Date(days * DAY_MS);
++  const year = date.getUTCFullYear();
++  if (year < 1000 || year > 9999) return undefined;
++  return date.toISOString().slice(0, 10);
++}
++
++export function addDays(iso: string, days: number): string {
++  const result = daysToIso((isoToDays(iso) as number) + days);
++  if (result === undefined) throw new RangeError(`date out of range: ${iso} + ${days} days`);
++  return result;
++}
++
++/** Reads a date argument (see docs/SPEC.md, "Dates") relative to `today`. */
++export function parseDate(text: string, today: string): string {
++  const fail = () => new UsageError(`invalid date "${text}" (expected ${DATE_HELP})`);
++  if (ISO.test(text)) {
++    if (isoToDays(text) === undefined) throw fail();
++    return text;
++  }
++  const base = isoToDays(today);
++  if (base === undefined) throw new UsageError("TASKS_TODAY must be a date like 2026-05-01");
++  const shift = (days: number) => daysToIso(base + days) ?? undefined;
++  let result: string | undefined;
++  if (text === "today") result = today;
++  else if (text === "tomorrow") result = shift(1);
++  else if (text === "yesterday") result = shift(-1);
++  else {
++    const match = RELATIVE.exec(text);
++    if (!match) throw fail();
++    result = shift(Number(match[2]) * (match[3] === "w" ? 7 : 1) * (match[1] === "-" ? -1 : 1));
++  }
++  if (result === undefined) throw fail();
++  return result;
++}
+diff --git a/src/journal.ts b/src/journal.ts
+new file mode 100644
+index 0000000..196ffe1
+--- /dev/null
++++ b/src/journal.ts
+@@ -0,0 +1,9 @@
++import type { JournalEntry, Store } from "./task.ts";
++
++export const JOURNAL_LIMIT = 10;
++
++/** Adds an entry to the store's journal, dropping the oldest ones beyond the limit. */
++export function record(store: Store, entry: JournalEntry): void {
++  store.journal.push(entry);
++  if (store.journal.length > JOURNAL_LIMIT) store.journal.splice(0, store.journal.length - JOURNAL_LIMIT);
++}
+diff --git a/src/storage.ts b/src/storage.ts
+index 92df2de..263a461 100644
+--- a/src/storage.ts
++++ b/src/storage.ts
+@@ -1,4 +1,5 @@
+ import * as nodeFs from "node:fs";
++import { pathToFileURL } from "node:url";
+ import { DataError, IoError } from "./errors.ts";
+ import { emptyStore, PRIORITIES } from "./task.ts";
+ import type { JournalEntry, Store, Task } from "./task.ts";
+@@ -6,8 +7,16 @@ import type { JournalEntry, Store, Task } from "./task.ts";
+ /** The file system functions the store uses. */
+ export type FsApi = Pick<typeof nodeFs, "readFileSync" | "writeFileSync" | "renameSync" | "unlinkSync">;
+ 
+-export async function loadFsApi(_env: NodeJS.ProcessEnv): Promise<FsApi> {
+-  return nodeFs;
++const HOOKED = ["readFileSync", "writeFileSync", "renameSync", "unlinkSync"] as const;
++
++/** node:fs, with the functions TASKS_FS_HOOK's module exports in place of the ones of the same name. */
++export async function loadFsApi(env: NodeJS.ProcessEnv): Promise<FsApi> {
++  const hook = env.TASKS_FS_HOOK;
++  if (!hook) return nodeFs;
++  const module = (await import(pathToFileURL(hook).href)) as Record<string, unknown>;
++  const api: Record<string, unknown> = { ...nodeFs };
++  for (const name of HOOKED) if (typeof module[name] === "function") api[name] = module[name];
++  return api as unknown as FsApi;
+ }
+ 
+ const ISO = /^\d{4}-\d{2}-\d{2}$/;
+@@ -70,12 +79,22 @@ export function readStore(path: string, fs: FsApi): Store {
+   return { version: 1, nextId: s.nextId as number, tasks: s.tasks as Task[], journal: journal as JournalEntry[] };
+ }
+ 
+-/** Writes the store file: two-space JSON and a final newline. */
++/**
++ * Writes the store file: two-space JSON and a final newline. The text goes to a temp file next
++ * to the store and is renamed over it, so a failure or a crash never leaves a half-written store.
++ */
+ export function writeStore(path: string, store: Store, fs: FsApi): void {
+   const text = `${JSON.stringify(store, null, 2)}\n`;
++  const temp = `${path}.${process.pid}.tmp`;
+   try {
+-    fs.writeFileSync(path, text, "utf8");
++    fs.writeFileSync(temp, text, "utf8");
++    fs.renameSync(temp, path);
+   } catch (error) {
++    try {
++      fs.unlinkSync(temp);
++    } catch {
++      // nothing to remove, or it cannot be removed: the store itself is untouched either way
++    }
+     throw new IoError(`cannot save ${path}: ${(error as Error).message}`);
+   }
+ }
+diff --git a/src/validate.ts b/src/validate.ts
+new file mode 100644
+index 0000000..0040523
+--- /dev/null
++++ b/src/validate.ts
+@@ -0,0 +1,52 @@
++import { UsageError } from "./errors.ts";
++import { PRIORITIES } from "./task.ts";
++import type { Priority } from "./task.ts";
++
++export const MAX_TITLE = 80;
++export const MAX_NOTE = 500;
++export const MAX_TAGS = 10;
++const TAG = /^[a-z0-9][a-z0-9_-]{0,19}$/;
++const ID = /^[1-9][0-9]*$/;
++
++export function parseId(text: string): number {
++  if (!ID.test(text) || !Number.isSafeInteger(Number(text))) throw new UsageError(`invalid id "${text}"`);
++  return Number(text);
++}
++
++export function parsePriority(text: string): Priority {
++  if (!PRIORITIES.includes(text as Priority)) {
++    throw new UsageError(`invalid priority "${text}" (expected high, normal or low)`);
++  }
++  return text as Priority;
++}
++
++export function parseTag(text: string): string {
++  const tag = text.trim().toLowerCase();
++  if (!TAG.test(tag)) throw new UsageError(`invalid tag "${text}"`);
++  return tag;
++}
++
++/** Normalised tags without repeats, in ascending order. */
++export function normaliseTags(tags: string[]): string[] {
++  return [...new Set(tags)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
++}
++
++export function parseTags(texts: string[]): string[] {
++  const tags = normaliseTags(texts.map(parseTag));
++  if (tags.length > MAX_TAGS) throw new UsageError(`a task has at most ${MAX_TAGS} tags`);
++  return tags;
++}
++
++export function parseTitle(text: string, emptyMessage: string): string {
++  const title = text.trim();
++  if (title === "") throw new UsageError(emptyMessage);
++  if (title.length > MAX_TITLE) throw new UsageError(`title is longer than ${MAX_TITLE} characters`);
++  return title;
++}
++
++/** The note, or null for an empty one. */
++export function parseNote(text: string): string | null {
++  const note = text.trim();
++  if (note.length > MAX_NOTE) throw new UsageError(`note is longer than ${MAX_NOTE} characters`);
++  return note === "" ? null : note;
++}
+diff --git a/test/commands.test.ts b/test/commands.test.ts
+new file mode 100644
+index 0000000..2c39945
+--- /dev/null
++++ b/test/commands.test.ts
+@@ -0,0 +1,56 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { join } from "node:path";
++import { cli, readStoreFile, tempDir, task, writeStoreFile } from "./helpers.ts";
++import { addDays, parseDate } from "../src/dates.ts";
++import { record } from "../src/journal.ts";
++import { emptyStore } from "../src/task.ts";
++
++test("dates: relative to today in calendar days", () => {
++  assert.equal(parseDate("+1d", "2026-02-28"), "2026-03-01");
++  assert.equal(parseDate("-1w", "2026-03-03"), "2026-02-24");
++  assert.equal(parseDate("tomorrow", "2028-02-28"), "2028-02-29");
++  assert.equal(addDays("2026-12-31", 1), "2027-01-01");
++  assert.throws(() => parseDate("2026-02-29", "2026-05-01"), { name: "UsageError" });
++  assert.throws(() => parseDate("+1d", "9999-12-31"), { name: "UsageError" });
++});
++
++test("journal keeps ten entries", () => {
++  const store = emptyStore();
++  for (let id = 1; id <= 12; id++) record(store, { op: "add", id });
++  assert.deepEqual(store.journal.map((e) => (e.op === "add" ? e.id : 0)), [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
++});
++
++test("add, done, edit and undo round trip", async () => {
++  const store = join(tempDir(), "tasks.json");
++  assert.equal((await cli(["--store", store, "add", "Buy", "milk", "--due", "+2d", "--tag", "Home"])).stdout, "Added #1: Buy milk (due 2026-05-03)\n");
++  assert.equal((await cli(["--store", store, "done", "1"])).stdout, "Done #1: Buy milk\n");
++  assert.equal((await cli(["--store", store, "edit", "1", "--priority", "high"])).stdout, "Edited #1 (priority)\n");
++  assert.equal((await cli(["--store", store, "undo"])).stdout, "Undid edit #1: Buy milk\n");
++  assert.equal((await cli(["--store", store, "undo"])).stdout, "Undid done #1: Buy milk\n");
++  assert.equal(readStoreFile(store).tasks[0]?.status, "open");
++  assert.equal((await cli(["--store", store, "undo"])).stdout, "Undid add #1: Buy milk\n");
++  assert.deepEqual((await cli(["--store", store, "undo"])).stderr, "tasks: undo: nothing to undo\n");
++});
++
++test("report counts what is overdue and due soon", async () => {
++  const store = join(tempDir(), "tasks.json");
++  writeStoreFile(store, [task({ id: 1, due: "2026-04-30" }), task({ id: 2, due: "2026-05-08" }), task({ id: 3, due: "2026-05-09" })]);
++  const result = await cli(["--store", store, "report", "--format", "json"]);
++  const report = JSON.parse(result.stdout);
++  assert.deepEqual([report.overdue, report.dueSoon], [[1], [2]]);
++});
++
++test("a failing rename leaves the store alone", async () => {
++  const dir = tempDir();
++  const store = join(dir, "tasks.json");
++  writeStoreFile(store, [task({ id: 1 })]);
++  const hook = join(dir, "hook.mjs");
++  const { writeFileSync, readFileSync } = await import("node:fs");
++  writeFileSync(hook, 'export function renameSync() { throw new Error("nope"); }\n');
++  const before = readFileSync(store, "utf8");
++  const result = await cli(["--store", store, "add", "x"], { TASKS_FS_HOOK: hook });
++  assert.equal(result.code, 74);
++  assert.equal(result.stderr, `tasks: cannot save ${store}: nope\n`);
++  assert.equal(readFileSync(store, "utf8"), before);
++});

@@ -1,0 +1,7 @@
+{
+  "title": "A reported bug: retries set to 0 are ignored (and its siblings)",
+  "kind": "bug-fix",
+  "tags": ["python", "bug-fix", "debugging"],
+  "max_turns": 40,
+  "timeout_s": 900
+}

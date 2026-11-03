@@ -1,0 +1,3 @@
+Ops keeps sending me this one. For some SKUs the stock the shop shows as available now and then ends up higher than what the warehouse actually has on the shelf, and it always happens after a round of cancellations. Last Thursday it was WIDGET-12: the warehouse counted 40 on the shelf, the shop said 46 available, and the stock report flagged it OVERSTATED until the nightly reconcile ran and put it right. We never see it on staging when we click through, and a single cancel always looks fine. The warehouse system was having a slow afternoon, if that helps.
+
+Please find the cause and fix it properly. Tests run with `npm test`.

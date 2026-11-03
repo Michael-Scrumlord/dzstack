@@ -1,0 +1,1 @@
+Support keeps forwarding this one: when people type fast in the product search box, it sometimes ends up showing results for something they typed a moment earlier, and it stays that way until they type again. Mostly on slow connections. Please fix it. The UI code calls `createSearchBox` as it is today, so keep its API. Tests run with `npm test`.

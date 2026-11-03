@@ -1,0 +1,5 @@
+Statement for Acme GmbH
+
+Invoice     Issued      Due                 Amount    Open balance  Paid
+------------------------------------------------------------------------
+2025-0002   2025-12-15  2026-01-14          $98.44          $98.44

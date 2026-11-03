@@ -1,0 +1,93 @@
+diff --git a/src/semver.ts b/src/semver.ts
+index 15471e7..7fd4087 100644
+--- a/src/semver.ts
++++ b/src/semver.ts
+@@ -20,8 +20,15 @@ export class InvalidVersionError extends Error {
+   }
+ }
+ 
+-// MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]
+-const VERSION = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z]+))?(?:\+([0-9A-Za-z]+))?$/;
++// MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD], the grammar of spec items 2 to 10.
++const NUMBER = "0|[1-9]\\d*"; // no leading zeros
++const PRERELEASE_ID = `(?:${NUMBER}|\\d*[A-Za-z-][0-9A-Za-z-]*)`; // digits only: no leading zeros
++const BUILD_ID = "[0-9A-Za-z-]+";
++const VERSION = new RegExp(
++  `^(${NUMBER})\\.(${NUMBER})\\.(${NUMBER})` +
++    `(?:-(${PRERELEASE_ID}(?:\\.${PRERELEASE_ID})*))?` +
++    `(?:\\+(${BUILD_ID}(?:\\.${BUILD_ID})*))?$`,
++);
+ 
+ export function tryParseVersion(text: string): Version | null {
+   const m = VERSION.exec(text);
+@@ -77,13 +84,20 @@ function comparePrerelease(a: string[], b: string[]): Order {
+   return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
+ }
+ 
++const DIGITS_ONLY = /^\d+$/;
++
+ function compareIdentifier(a: string, b: string): Order {
+-  const na = parseInt(a, 10);
+-  const nb = parseInt(b, 10);
+-  if (!Number.isNaN(na) && !Number.isNaN(nb)) return na === nb ? 0 : na < nb ? -1 : 1;
+-  if (!Number.isNaN(na)) return -1; // numbers sort before words
+-  if (!Number.isNaN(nb)) return 1;
+-  return a === b ? 0 : a < b ? -1 : 1;
++  const aNumeric = DIGITS_ONLY.test(a);
++  const bNumeric = DIGITS_ONLY.test(b);
++  if (aNumeric && bNumeric) {
++    // No leading zeros, so more digits means a bigger number, whatever its size.
++    if (a.length !== b.length) return a.length < b.length ? -1 : 1;
++  } else if (aNumeric) {
++    return -1; // digits-only identifiers sort before the others
++  } else if (bNumeric) {
++    return 1;
++  }
++  return a === b ? 0 : a < b ? -1 : 1; // ASCII order
+ }
+ 
+ export function sortVersions(list: readonly string[]): string[] {
+diff --git a/test/semver.test.ts b/test/semver.test.ts
+index a46172d..44d03e9 100644
+--- a/test/semver.test.ts
++++ b/test/semver.test.ts
+@@ -14,6 +14,24 @@ test("formats what it parsed", () => {
+   assert.equal(formatVersion(parseVersion("4.5.6-rc+exp")), "4.5.6-rc+exp");
+ });
+ 
++test("accepts dots and hyphens in pre-release identifiers and dots in build metadata", () => {
++  assert.deepEqual(parseVersion("2.1.0-rc.1+build.7"), {
++    major: 2,
++    minor: 1,
++    patch: 0,
++    prerelease: ["rc", "1"],
++    build: ["build", "7"],
++  });
++  assert.deepEqual(parseVersion("1.0.0-x-y-z.--").prerelease, ["x-y-z", "--"]);
++  assert.equal(isValidVersion("1.0.0-alpha.beta"), true);
++});
++
++test("rejects leading zeros and empty identifiers", () => {
++  for (const text of ["01.2.3", "1.2.3-01", "1.2.3-alpha..1", "1.2.3-", "1.2.3+"]) {
++    assert.equal(isValidVersion(text), false, text);
++  }
++});
++
+ test("rejects text that is not a version", () => {
+   for (const text of ["", "1", "1.2", "1.2.3.4", "v1.2.3", " 1.2.3", "latest"]) {
+     assert.equal(isValidVersion(text), false, text);
+@@ -39,3 +57,14 @@ test("orders simple pre-releases", () => {
+ test("ignores build metadata", () => {
+   assert.equal(compareVersions("1.0.0+a", "1.0.0+b"), 0);
+ });
++
++test("follows the spec's precedence example", () => {
++  const chain = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0"];
++  for (let i = 0; i + 1 < chain.length; i++) assert.equal(compareVersions(chain[i], chain[i + 1]), -1, chain[i]);
++});
++
++test("identifiers that start with digits but contain letters are not numbers", () => {
++  assert.equal(compareVersions("1.0.0-99", "1.0.0-1a"), -1);
++  assert.equal(compareVersions("1.0.0-1a", "1.0.0-1b"), -1);
++  assert.equal(compareVersions("1.0.0-2x", "1.0.0-10y"), 1);
++});

@@ -1,0 +1,7 @@
+{
+  "title": "A feature request: CSV export for spreadsheets, following the plugin docs",
+  "kind": "feature",
+  "tags": ["hard", "python", "feature"],
+  "max_turns": 120,
+  "timeout_s": 2400
+}

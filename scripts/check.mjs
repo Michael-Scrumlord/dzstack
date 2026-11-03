@@ -131,7 +131,10 @@ for (const path of codeFiles) {
 
 // The pack ships generic: no owner names or home-infrastructure hosts. Only the plugin author line may name a person.
 const ownerTokens = /michael|sirius|scrumlord|fretfulalloy|mikestand/i;
-const ownerAllow = { ".cursor-plugin/plugin.json": ['"name": "Michael Daza"'] };
+const ownerAllow = {
+  ".cursor-plugin/plugin.json": ['"name": "Michael Daza"'],
+  "evals/arms.json": ["\"plugin\": \"git+https://github.com/michael-denyer/pstack-claude.git@513c0886b79abb04065293581a4ef7e70049e4f2:plugins/pstack\","], // pstack-claude's own author, not the owner
+};
 const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
 for (const where of tracked) {
   if (where === "scripts/check.mjs" || !existsSync(join(root, where))) continue;

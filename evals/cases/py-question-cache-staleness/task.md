@@ -1,0 +1,1 @@
+I just inherited this catalog service. How does caching work in it, and can a user ever see a stale value? Put your answer in ANSWER.md and keep it under 300 words. I only want the answer, so please don't change any code.

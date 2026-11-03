@@ -1,0 +1,1 @@
+Finance wants the sales report in a spreadsheet, and we can't pull in an XLSX library. Please add a CSV export that follows the conventions in docs/plugins.md, so the files open cleanly in Excel and Google Sheets. It should be selectable with `--format csv` and with `format = "csv"` in the config file, like the other formats. Tests run with `python3 -m pytest`.

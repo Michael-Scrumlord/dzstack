@@ -1,0 +1,26 @@
+{
+  "currency": "USD",
+  "customer": {
+    "country": "US",
+    "name": "Fish & Chips <Ltd>"
+  },
+  "format_version": 1,
+  "issued": "2025-11-03",
+  "lines": [
+    {
+      "amount_cents": 9990,
+      "description": "<script>alert(1)</script>",
+      "quantity": "0.333",
+      "sku": "A&B",
+      "tax_cents": 724,
+      "tax_code": "standard",
+      "unit_price_cents": 30001
+    }
+  ],
+  "notes": "Thanks <b>so</b> much & see you",
+  "number": "2025-0001",
+  "subtotal_cents": 9990,
+  "tax_cents": 724,
+  "terms_days": 30,
+  "total_cents": 10714
+}

@@ -1,0 +1,143 @@
+diff --git a/README.md b/README.md
+index efd847d..c8fd097 100644
+--- a/README.md
++++ b/README.md
+@@ -35,10 +35,36 @@ Categories are listed by total, largest first; categories with equal totals are
+ 
+ When there are no expenses (an empty file, or nothing left after `--month`), the output is the single line `No expenses found.` and the exit status is 0.
+ 
++## JSON output
++
++`--format json` prints the same summary as one JSON document instead of the table:
++
++```
++{
++  "categories": [
++    {
++      "category": "Rent",
++      "count": 1,
++      "total": 1200.0
++    },
++    {
++      "category": "Groceries",
++      "count": 3,
++      "total": 168.7
++    }
++  ],
++  "count": 4,
++  "total": 1368.7
++}
++```
++
++The categories are in the same order as the text table. Amounts are plain numbers rounded to cents: no thousands separator, refunds negative. With no expenses the document is `{"categories": [], "count": 0, "total": 0}`. Errors are reported the same way in both formats.
++
+ ## Options
+ 
+ - `--month YYYY-MM` keeps only expenses dated in that month.
+ - `--sort {total,name}` chooses the order described above (default `total`).
++- `--format {text,json}` chooses the output format (default `text`).
+ 
+ ## Errors
+ 
+diff --git a/expenses/cli.py b/expenses/cli.py
+index 384656a..d7ff787 100644
+--- a/expenses/cli.py
++++ b/expenses/cli.py
+@@ -6,7 +6,7 @@ import re
+ import sys
+ 
+ from .loader import LoadError, load_expenses
+-from .render import render_text
++from .render import render_json, render_text
+ from .report import summarize
+ 
+ 
+@@ -22,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
+     parser.add_argument("--month", type=_month, metavar="YYYY-MM", help="only expenses dated in this month")
+     parser.add_argument("--sort", choices=("total", "name"), default="total",
+                         help="order of the categories (default: total, largest first)")
++    parser.add_argument("--format", choices=("text", "json"), default="text", help="output format (default: text)")
+     return parser
+ 
+ 
+@@ -33,8 +34,10 @@ def main(argv: list[str] | None = None) -> int:
+         print(f"expenses: {exc}", file=sys.stderr)
+         return 2
+     summary = summarize(expenses, month=args.month, sort=args.sort)
+-    if summary.count == 0:
++    if args.format == "json":
++        print(render_json(summary), end="")
++    elif summary.count == 0:
+         print("No expenses found.")
+-        return 0
+-    print(render_text(summary), end="")
++    else:
++        print(render_text(summary), end="")
+     return 0
+diff --git a/expenses/render.py b/expenses/render.py
+index 7963a72..f697c40 100644
+--- a/expenses/render.py
++++ b/expenses/render.py
+@@ -1,6 +1,7 @@
+ """Plain text output."""
+ from __future__ import annotations
+ 
++import json
+ from decimal import Decimal
+ 
+ from .report import Summary
+@@ -22,3 +23,15 @@ def render_text(summary: Summary) -> str:
+ 
+     rule = "  ".join("-" * w for w in widths)
+     return "\n".join([line(head), rule, *map(line, rows), rule, line(foot)]) + "\n"
++
++
++def render_json(summary: Summary) -> str:
++    """The summary as one JSON document; amounts are numbers rounded to cents."""
++    return json.dumps({
++        "categories": [
++            {"category": c.category, "count": c.count, "total": float(c.total)}
++            for c in summary.categories
++        ],
++        "count": summary.count,
++        "total": float(summary.total),
++    }, indent=2, ensure_ascii=False) + "\n"
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 47ed745..f24444c 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -1,3 +1,5 @@
++import json
++
+ import pytest
+ 
+ from expenses.cli import main
+@@ -71,3 +73,28 @@ def test_bad_month_is_rejected(tmp_path):
+     with pytest.raises(SystemExit) as exc:
+         main([str(tmp_path / "x.csv"), "--month", "2024-13"])
+     assert exc.value.code == 2
++
++
++def test_json_format(tmp_path, capsys):
++    code, out, err = run(tmp_path, capsys, CSV, "--format", "json")
++    assert (code, err) == (0, "")
++    assert json.loads(out) == {
++        "categories": [
++            {"category": "Rent", "count": 1, "total": 1200.0},
++            {"category": "Food", "count": 2, "total": 42.5},
++            {"category": "Fun", "count": 1, "total": 42.5},
++        ],
++        "count": 4,
++        "total": 1285.0,
++    }
++
++
++def test_json_format_with_no_expenses(tmp_path, capsys):
++    code, out, _ = run(tmp_path, capsys, "", "--format", "json")
++    assert code == 0
++    assert json.loads(out) == {"categories": [], "count": 0, "total": 0}
++
++
++def test_json_respects_month_and_sort(tmp_path, capsys):
++    _, out, _ = run(tmp_path, capsys, CSV, "--format", "json", "--month", "2024-03", "--sort", "name")
++    assert [c["category"] for c in json.loads(out)["categories"]] == ["Food", "Rent"]

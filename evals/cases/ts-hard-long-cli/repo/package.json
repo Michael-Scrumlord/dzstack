@@ -1,0 +1,7 @@
+{
+  "name": "tasks-cli",
+  "private": true,
+  "type": "module",
+  "bin": { "tasks": "src/main.ts" },
+  "scripts": { "test": "node --test" }
+}

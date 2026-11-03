@@ -1,0 +1,7 @@
+{
+  "title": "A schema change: split users.full_name into given and family names, on a database full of messy names",
+  "kind": "feature",
+  "tags": ["hard", "python", "feature", "data"],
+  "max_turns": 120,
+  "timeout_s": 2400
+}

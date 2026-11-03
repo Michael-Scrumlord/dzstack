@@ -1,0 +1,16 @@
+{
+  "customer": {
+    "country": "US",
+    "name": "Fish & Chips <Ltd>"
+  },
+  "issued": "2026-01-15",
+  "lines": [
+    {
+      "description": "<script>alert(1)</script>",
+      "quantity": "0.333",
+      "sku": "A&B",
+      "unit_price_cents": 30001
+    }
+  ],
+  "notes": "Thanks <b>so</b> much & see you"
+}

@@ -1,0 +1,7 @@
+{
+  "title": "A reported bug: fast typing in the search box shows results for an earlier query",
+  "kind": "bug-fix",
+  "tags": ["quick", "typescript", "bug-fix"],
+  "max_turns": 40,
+  "timeout_s": 900
+}

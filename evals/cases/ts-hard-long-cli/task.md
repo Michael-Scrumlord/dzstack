@@ -1,0 +1,1 @@
+The tasks CLI only has `list` so far. Please implement the rest of what `docs/SPEC.md` specifies: the `add`, `done`, `undo`, `edit` and `report` commands, the safe way of writing the store file with the test hook it describes, and the updated help text. Tests run with `npm test`.

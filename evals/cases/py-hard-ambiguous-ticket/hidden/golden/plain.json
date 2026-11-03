@@ -1,0 +1,35 @@
+{
+  "currency": "USD",
+  "customer": {
+    "country": "DE",
+    "email": "ap@acme.example",
+    "name": "Acme GmbH"
+  },
+  "issued": "2026-03-02",
+  "lines": [
+    {
+      "amount_cents": 4900,
+      "description": "Pro plan, March",
+      "quantity": "1",
+      "sku": "SUB-PRO",
+      "tax_cents": 931,
+      "tax_code": "standard",
+      "unit_price_cents": 4900
+    },
+    {
+      "amount_cents": 3750,
+      "description": "Extra seat",
+      "quantity": "3",
+      "sku": "SEAT",
+      "tax_cents": 263,
+      "tax_code": "reduced",
+      "unit_price_cents": 1250
+    }
+  ],
+  "notes": "PO 77",
+  "number": null,
+  "subtotal_cents": 8650,
+  "tax_cents": 1194,
+  "terms_days": 30,
+  "total_cents": 9844
+}

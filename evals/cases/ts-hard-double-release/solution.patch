@@ -1,0 +1,343 @@
+diff --git a/docs/events.md b/docs/events.md
+index 5bc2097..ba355d1 100644
+--- a/docs/events.md
++++ b/docs/events.md
+@@ -23,4 +23,6 @@ A promise cannot be cancelled. When an attempt does not answer within `timeoutMs
+ 
+ A hung attempt must never stop a later attempt from finishing the job. That is what the retry is for.
+ 
++So the release itself is written to be repeated and to overlap: the warehouse call is made outside the store's critical section (`store.atomically`), and the status check, the status change and the ledger update happen together inside it. The attempt that gets in first releases; every other attempt, redelivery or reconcile run finds the reservation already released and does nothing.
++
+ If every attempt fails, the failure goes to the bus's dead letters and the nightly reconcile (see `operations.md`) picks the work up.
+diff --git a/src/app.ts b/src/app.ts
+index c29322f..42ddfcc 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -63,7 +63,7 @@ export function createApp(deps: AppDeps = {}): App {
+   registerInventoryHandlers({ bus, reservations, orders, clock, config });
+   registerAudit({ bus, store, clock, ids });
+   const notifier = createNotifier(bus);
+-  const reconciler = createReconciler({ reservations, orders, ledger, clock, logger });
++  const reconciler = createReconciler({ store, reservations, orders, ledger, clock, logger });
+   const api = createApi({ orders, ledger, catalog, reconciler, config });
+ 
+   return { config, catalog, ledger, store, bus, reservations, orders, reconciler, notifier, api };
+diff --git a/src/inventory/ledger.ts b/src/inventory/ledger.ts
+index de54c81..b6ef198 100644
+--- a/src/inventory/ledger.ts
++++ b/src/inventory/ledger.ts
+@@ -1,4 +1,4 @@
+-import { InsufficientStockError, NotFoundError, ValidationError } from "../platform/errors.ts";
++import { InsufficientStockError, InvariantError, NotFoundError, ValidationError } from "../platform/errors.ts";
+ import type { Sku, StockCounts } from "./types.ts";
+ 
+ export interface Ledger {
+@@ -23,8 +23,11 @@ function positive(qty: number): void {
+   if (!Number.isInteger(qty) || qty <= 0) throw new ValidationError(`quantity must be a positive whole number, got ${qty}`);
+ }
+ 
+-/** A counter never goes below zero. */
+-const minus = (value: number, qty: number): number => Math.max(0, value - qty);
++/** Takes qty out of the reserved counter. More than is reserved means a unit is being given back twice. */
++function takeReserved(c: StockCounts, qty: number): void {
++  if (qty > c.reserved) throw new InvariantError(`${c.sku}: ${qty} units to take out of reserved, but only ${c.reserved} are reserved`);
++  c.reserved -= qty;
++}
+ 
+ export function createLedger(): Ledger {
+   const counts = new Map<Sku, StockCounts>();
+@@ -60,13 +63,13 @@ export function createLedger(): Ledger {
+     release(sku, qty) {
+       positive(qty);
+       const c = must(sku);
+-      c.reserved = minus(c.reserved, qty);
++      takeReserved(c, qty);
+       c.available += qty;
+     },
+     commit(sku, qty) {
+       positive(qty);
+       const c = must(sku);
+-      c.reserved = minus(c.reserved, qty);
++      takeReserved(c, qty);
+       c.sold += qty;
+     },
+     repair(sku, fixed) {
+diff --git a/src/inventory/reconcile.ts b/src/inventory/reconcile.ts
+index 4c42a0f..4f0ba94 100644
+--- a/src/inventory/reconcile.ts
++++ b/src/inventory/reconcile.ts
+@@ -1,6 +1,7 @@
+ import type { Clock } from "../platform/clock.ts";
+ import type { Logger } from "../platform/logger.ts";
+ import type { OrderService } from "../orders/orders.ts";
++import type { Store } from "../store/store.ts";
+ import type { Ledger } from "./ledger.ts";
+ import type { ReservationService } from "./reservations.ts";
+ import type { Sku } from "./types.ts";
+@@ -32,13 +33,14 @@ const sum = (rows: Array<{ qty: number }>): number => rows.reduce((total, row) =
+  * compares the ledger with the reservation table and corrects any SKU whose counters disagree with it.
+  */
+ export function createReconciler(deps: {
++  store: Store;
+   reservations: ReservationService;
+   orders: OrderService;
+   ledger: Ledger;
+   clock: Clock;
+   logger: Logger;
+ }): Reconciler {
+-  const { reservations, orders, ledger, clock, logger } = deps;
++  const { store, reservations, orders, ledger, clock, logger } = deps;
+ 
+   return {
+     async run() {
+@@ -56,16 +58,19 @@ export function createReconciler(deps: {
+       }
+ 
+       for (const sku of ledger.skus()) {
+-        const rows = await reservations.list((x) => x.sku === sku);
+-        const expected = {
+-          reserved: sum(rows.filter((x) => x.status === "active")),
+-          sold: sum(rows.filter((x) => x.status === "committed")),
+-        };
+-        const c = ledger.snapshot(sku);
+-        if (c.reserved !== expected.reserved || c.sold !== expected.sold) {
+-          report.drift.push({ sku, expected, actual: { reserved: c.reserved, sold: c.sold, available: c.available, onHand: c.onHand } });
+-          ledger.repair(sku, expected);
+-        }
++        // Inside the critical section, so a reservation is never seen half released.
++        await store.atomically(async () => {
++          const rows = await reservations.list((x) => x.sku === sku);
++          const expected = {
++            reserved: sum(rows.filter((x) => x.status === "active")),
++            sold: sum(rows.filter((x) => x.status === "committed")),
++          };
++          const c = ledger.snapshot(sku);
++          if (c.reserved !== expected.reserved || c.sold !== expected.sold) {
++            report.drift.push({ sku, expected, actual: { reserved: c.reserved, sold: c.sold, available: c.available, onHand: c.onHand } });
++            ledger.repair(sku, expected);
++          }
++        });
+       }
+ 
+       if (report.drift.length) logger.warn("reconcile corrected stock counters", { skus: report.drift.map((d) => d.sku) });
+diff --git a/src/inventory/reservations.ts b/src/inventory/reservations.ts
+index a6e02ea..fe87a1f 100644
+--- a/src/inventory/reservations.ts
++++ b/src/inventory/reservations.ts
+@@ -62,46 +62,62 @@ export function createReservationService(deps: ReservationDeps): ReservationServ
+   }
+ 
+   return {
+-    async reserve({ orderId, sku, qty }) {
+-      ledger.reserve(sku, qty);
+-      const now = clock.now();
+-      const r: Reservation = {
+-        id: ids.next("res"),
+-        orderId,
+-        sku,
+-        qty,
+-        status: "active",
+-        createdAt: now,
+-        expiresAt: now + config.reservationTtlMs,
+-      };
+-      await store.reservations.put(r);
+-      armTimer(r);
+-      return r;
++    // Every change of a reservation's status and of the ledger happens inside store.atomically, after the
++    // status has been read again there: that is the one point where a reservation is committed or released, so
++    // it happens once however many handlers, retries or redeliveries get there.
++    reserve({ orderId, sku, qty }) {
++      return store.atomically(async () => {
++        ledger.reserve(sku, qty);
++        const now = clock.now();
++        const r: Reservation = {
++          id: ids.next("res"),
++          orderId,
++          sku,
++          qty,
++          status: "active",
++          createdAt: now,
++          expiresAt: now + config.reservationTtlMs,
++        };
++        await store.reservations.put(r);
++        armTimer(r);
++        return r;
++      });
+     },
+ 
+-    async commit(id) {
+-      const r = await mustGet(id);
+-      if (r.status === "released") throw new ReservationExpiredError(id);
+-      if (r.status === "committed") return r;
+-      clearTimer(id);
+-      ledger.commit(r.sku, r.qty);
+-      const done: Reservation = { ...r, status: "committed", committedAt: clock.now() };
+-      await store.reservations.put(done);
+-      return done;
++    commit(id) {
++      return store.atomically(async () => {
++        const r = await mustGet(id);
++        if (r.status === "released") throw new ReservationExpiredError(id);
++        if (r.status === "committed") return r;
++        clearTimer(id);
++        ledger.commit(r.sku, r.qty);
++        const done: Reservation = { ...r, status: "committed", committedAt: clock.now() };
++        await store.reservations.put(done);
++        return done;
++      });
+     },
+ 
+     async release(id, reason) {
+-      const r = await mustGet(id);
+-      if (r.status !== "active") return false; // already released, or sold
+-      await warehouse.deallocate(r.id, r.sku, r.qty);
+-      ledger.release(r.sku, r.qty);
+-      clearTimer(id);
+-      await store.reservations.put({ ...r, status: "released", releasedAt: clock.now(), releaseReason: reason });
++      const seen = await mustGet(id);
++      if (seen.status !== "active") return false; // already released, or sold
++      // Outside the critical section on purpose: the warehouse is slow, may never answer, and does nothing the
++      // second time it hears about the same reservation. A hung attempt must not hold up a retry.
++      await warehouse.deallocate(seen.id, seen.sku, seen.qty);
++      const released = await store.atomically(async () => {
++        const r = await mustGet(id);
++        if (r.status !== "active") return undefined; // another attempt, handler or reconcile got here first
++        const done: Reservation = { ...r, status: "released", releasedAt: clock.now(), releaseReason: reason };
++        await store.reservations.put(done);
++        ledger.release(r.sku, r.qty);
++        clearTimer(id);
++        return done;
++      });
++      if (!released) return false;
+       bus.publish<ReservationReleasedPayload>(EVENT.reservationReleased, {
+-        reservationId: r.id,
+-        orderId: r.orderId,
+-        sku: r.sku,
+-        qty: r.qty,
++        reservationId: released.id,
++        orderId: released.orderId,
++        sku: released.sku,
++        qty: released.qty,
+         reason,
+       });
+       return true;
+diff --git a/src/platform/mutex.ts b/src/platform/mutex.ts
+new file mode 100644
+index 0000000..dc5d82c
+--- /dev/null
++++ b/src/platform/mutex.ts
+@@ -0,0 +1,19 @@
++// Runs async sections one at a time, in the order they were asked for.
++
++export interface Mutex {
++  run<T>(section: () => Promise<T>): Promise<T>;
++}
++
++export function createMutex(): Mutex {
++  let tail: Promise<void> = Promise.resolve();
++  return {
++    run(section) {
++      const result = tail.then(section);
++      tail = result.then(
++        () => undefined,
++        () => undefined,
++      );
++      return result;
++    },
++  };
++}
+diff --git a/src/store/store.ts b/src/store/store.ts
+index 296d215..94f6e3c 100644
+--- a/src/store/store.ts
++++ b/src/store/store.ts
+@@ -1,18 +1,26 @@
+ import type { Order } from "../orders/types.ts";
+ import type { Reservation } from "../inventory/types.ts";
+ import type { AuditEntry } from "../audit/audit.ts";
++import { createMutex } from "../platform/mutex.ts";
+ import { createMemoryCollection, type Collection } from "./collection.ts";
+ 
+ export interface Store {
+   orders: Collection<Order>;
+   reservations: Collection<Reservation>;
+   audit: Collection<AuditEntry>;
++  /**
++   * Runs a read-check-write sequence as one unit: no other `atomically` section runs in between (a database
++   * transaction, in the real store). Keep it short and never call slow external systems inside it.
++   */
++  atomically<T>(section: () => Promise<T>): Promise<T>;
+ }
+ 
+ export function createMemoryStore(): Store {
++  const lock = createMutex();
+   return {
+     orders: createMemoryCollection<Order>(),
+     reservations: createMemoryCollection<Reservation>(),
+     audit: createMemoryCollection<AuditEntry>(),
++    atomically: (section) => lock.run(section),
+   };
+ }
+diff --git a/test/ledger.test.ts b/test/ledger.test.ts
+index a866c7f..c454532 100644
+--- a/test/ledger.test.ts
++++ b/test/ledger.test.ts
+@@ -77,3 +77,12 @@ test("all() lists SKUs in order", () => {
+   ledger.receive("ABC-1", 2);
+   assert.deepEqual(ledger.all().map((c) => c.sku), ["ABC-1", "ZED-9"]);
+ });
++
++test("giving back more than is reserved is refused instead of inventing stock", () => {
++  const ledger = stocked();
++  ledger.reserve("WID-1", 4);
++  ledger.release("WID-1", 4);
++  assert.throws(() => ledger.release("WID-1", 4), { code: "invariant" });
++  assert.throws(() => ledger.commit("WID-1", 1), { code: "invariant" });
++  assert.deepEqual(ledger.snapshot("WID-1"), { sku: "WID-1", onHand: 10, available: 10, reserved: 0, sold: 0 });
++});
+diff --git a/test/reservations.test.ts b/test/reservations.test.ts
+index 7837095..ce8cc04 100644
+--- a/test/reservations.test.ts
++++ b/test/reservations.test.ts
+@@ -100,3 +100,42 @@ test("restoreTimers re-arms active reservations that have no timer", async () =>
+   assert.equal(await app.reservations.restoreTimers(), 1, "still active, no timer: armed again");
+   assert.equal(clock.pending(), 1);
+ });
++
++test("two releases of the same reservation at the same moment give the units back once", async () => {
++  const app = makeApp();
++  const r = await app.reservations.reserve({ orderId: "ord_x", sku: "WID-1", qty: 5 });
++  const results = await Promise.all([app.reservations.release(r.id, "order_cancelled"), app.reservations.release(r.id, "expired")]);
++  assert.deepEqual(results.sort(), [false, true]);
++  assert.deepEqual(app.ledger.snapshot("WID-1"), { sku: "WID-1", onHand: 20, available: 20, reserved: 0, sold: 0 });
++});
++
++test("a release that overtakes a hung one wins, and the late answer of the hung one changes nothing", async () => {
++  const gates: Array<() => void> = [];
++  const warehouse = {
++    async deallocate() {
++      if (gates.length === 0) await new Promise<void>((resolve) => gates.push(resolve)); // the first call never answers
++    },
++  };
++  const app = makeApp({ warehouse });
++  const other = await app.reservations.reserve({ orderId: "ord_y", sku: "WID-1", qty: 3 });
++  const r = await app.reservations.reserve({ orderId: "ord_x", sku: "WID-1", qty: 5 });
++  const hung = app.reservations.release(r.id, "expired");
++  await settle();
++  assert.equal(await app.reservations.release(r.id, "order_cancelled"), true);
++  gates[0]();
++  assert.equal(await hung, false);
++  assert.deepEqual(app.ledger.snapshot("WID-1"), { sku: "WID-1", onHand: 20, available: 17, reserved: 3, sold: 0 });
++  assert.equal((await app.reservations.get(other.id))?.status, "active");
++});
++
++test("a release and a commit of the same reservation cannot both succeed", async () => {
++  const app = makeApp();
++  const r = await app.reservations.reserve({ orderId: "ord_x", sku: "WID-1", qty: 5 });
++  const [released, committed] = await Promise.all([
++    app.reservations.release(r.id, "expired"),
++    app.reservations.commit(r.id).then(() => true, () => false),
++  ]);
++  assert.notEqual(released, committed);
++  const c = app.ledger.snapshot("WID-1");
++  assert.equal(c.available + c.reserved + c.sold, c.onHand);
++});

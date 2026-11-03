@@ -1,0 +1,178 @@
+diff --git a/README.md b/README.md
+index 9a24c48..0f81129 100644
+--- a/README.md
++++ b/README.md
+@@ -4,6 +4,7 @@ Builds reports from data sources (JSON lines files, SQLite queries) and writes t
+ 
+ ```
+ $ reportly formats
++csv       .csv   comma-separated values for spreadsheets
+ markdown  .md    GitHub-flavoured Markdown table
+ text      .txt   aligned plain-text table
+ $ reportly run sales --config reportly.toml --format markdown --output sales.md
+diff --git a/docs/plugins.md b/docs/plugins.md
+index ef7e625..928f8c7 100644
+--- a/docs/plugins.md
++++ b/docs/plugins.md
+@@ -73,5 +73,6 @@ Formats that write delimiter-separated values follow these conventions, so that
+ 
+ | name | extension | streams | notes |
+ |---|---|---|---|
++| `csv` | `.csv` | yes | spreadsheet CSV, see above; options `delimiter`, `bom`, `header` |
+ | `text` | `.txt` | no | aligned table with a row count; option `max_width` |
+ | `markdown` | `.md` | yes | GitHub-flavoured table; option `escape` |
+diff --git a/reportly/formats/csvfmt.py b/reportly/formats/csvfmt.py
+new file mode 100644
+index 0000000..65daca8
+--- /dev/null
++++ b/reportly/formats/csvfmt.py
+@@ -0,0 +1,57 @@
++"""CSV for spreadsheets and programs. Follows "Spreadsheet formats" in docs/plugins.md."""
++from __future__ import annotations
++
++from typing import Any, Iterable, Sequence, TextIO
++
++from reportly.columns import Column
++from reportly.errors import RowError
++from reportly.formatting import machine
++from reportly.plugins import FormatBase, Option, register_format
++
++BOM = "﻿"
++# A spreadsheet reads a cell starting with one of these as a formula.
++FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
++
++
++def _delimiter_ok(value: str) -> None:
++    if len(value) != 1 or value in ('"', "\r", "\n"):
++        raise ValueError("must be exactly one character, and not a double quote or a line break")
++
++
++def _defuse(text: str) -> str:
++    return "'" + text if text.startswith(FORMULA_STARTS) else text
++
++
++@register_format
++class CsvFormat(FormatBase):
++    name = "csv"
++    extension = ".csv"
++    content_type = "text/csv; charset=utf-8"
++    description = "comma-separated values for spreadsheets"
++    streaming = True
++    options = {
++        "delimiter": Option(str, ",", "cell separator, one character", _delimiter_ok),
++        "bom": Option(bool, True, "start with a UTF-8 byte order mark"),
++        "header": Option(bool, True, "write the column titles first"),
++    }
++
++    def render(self, columns: Sequence[Column], rows: Iterable[Sequence[Any]], out: TextIO) -> None:
++        delimiter = self.opts["delimiter"]
++        needs_quotes = (delimiter, '"', "\r", "\n")
++
++        def line(cells: Iterable[str]) -> str:
++            quoted = ('"' + c.replace('"', '""') + '"' if any(ch in c for ch in needs_quotes) else c for c in cells)
++            return delimiter.join(quoted) + "\r\n"
++
++        def cell(value: Any) -> str:
++            text = machine(value)
++            return _defuse(text) if isinstance(value, str) else text
++
++        if self.opts["bom"]:
++            out.write(BOM)
++        if self.opts["header"]:
++            out.write(line(_defuse(c.title) for c in columns))
++        for number, row in enumerate(rows, 1):
++            if len(row) != len(columns):
++                raise RowError(number, len(columns), len(row))
++            out.write(line(cell(v) for v in row))
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 7308b4d..dfde988 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -72,6 +72,7 @@ def test_formats_lists_what_is_registered(write_config):
+     code, out, _ = run("formats", "--config", str(write_config()))
+     assert code == 0
+     assert out.splitlines() == [
++        "csv       .csv   comma-separated values for spreadsheets",
+         "markdown  .md    GitHub-flavoured Markdown table",
+         "text      .txt   aligned plain-text table",
+     ]
+@@ -86,7 +87,7 @@ def test_an_unknown_format_is_a_usage_error_before_anything_is_written(write_con
+     target = tmp_path / "never.txt"
+     code, out, err = run("run", "sales", "--config", str(path), "--format", "nope", "--output", str(target))
+     assert code == 2 and out == ""
+-    assert "reportly: error: unknown format 'nope' (available: markdown, text)" in err
++    assert "reportly: error: unknown format 'nope' (available: csv, markdown, text)" in err
+     assert not target.exists()
+ 
+ 
+diff --git a/tests/test_csv_format.py b/tests/test_csv_format.py
+new file mode 100644
+index 0000000..baa9f8c
+--- /dev/null
++++ b/tests/test_csv_format.py
+@@ -0,0 +1,65 @@
++import io
++from datetime import date
++from decimal import Decimal
++
++import pytest
++
++from reportly.errors import ConfigError, RowError
++from reportly.plugins import get_format
++
++from test_cli import run
++
++
++def render(columns, rows, **options):
++    out = io.StringIO()
++    get_format("csv")(**options).render(columns, rows, out)
++    return out.getvalue()
++
++
++def test_a_spreadsheet_file(columns, rows):
++    assert render(columns, rows) == (
++        "﻿Region,Amount,Units,Closed,OK\r\n"
++        "Europe,1234.50,12,2025-03-09,true\r\n"
++        "Asia | Pacific,-20.00,3,2025-03-30,false\r\n"
++        "Americas,0.5,1500,,\r\n"
++    )
++
++
++def test_it_is_registered_and_streams():
++    cls = get_format("csv")
++    assert (cls.extension, cls.streaming) == (".csv", True)
++
++
++def test_text_that_looks_like_a_formula_is_defused_but_numbers_are_not(columns):
++    out = render(columns[:2], [("=1+1", Decimal("-5")), ("-x", -5), ("@a,b", 1.5)], bom=False)
++    assert out == "Region,Amount\r\n'=1+1,-5\r\n'-x,-5\r\n\"'@a,b\",1.5\r\n"
++
++
++def test_quotes_and_line_breaks(columns):
++    out = render(columns[:1], [('say "hi"',), ("two\nlines",), ("a,b",)], bom=False, header=False)
++    assert out == '"say ""hi"""\r\n"two\nlines"\r\n"a,b"\r\n'
++
++
++def test_options(columns, rows):
++    out = render(columns[:2], [rows[0][:2]], delimiter=";", bom=False, header=False)
++    assert out == "Europe;1234.50\r\n"
++    for bad in ("", "ab", '"', "\n"):
++        with pytest.raises(ConfigError, match="delimiter"):
++            render(columns, rows, delimiter=bad)
++
++
++def test_a_short_row_is_an_error(columns, rows):
++    with pytest.raises(RowError, match="row 2"):
++        render(columns, [rows[0], rows[1][:2]])
++
++
++def test_the_command_line_and_the_config_file_select_it(write_config):
++    path = write_config('format = "csv"\n[formats.csv]\nbom = false\n')
++    code, out, _ = run("run", "sales", "--config", str(path))
++    assert code == 0 and out.startswith("Region,Amount,Units,Closed,OK\r\nEurope,1234.50,12,2025-03-09,true\r\n")
++    code, out, _ = run("run", "sales", "--config", str(path), "-f", "text")
++    assert out.startswith("Region")
++
++
++def test_the_formats_command_lists_it(write_config):
++    assert any(l.startswith("csv") and ".csv" in l for l in run("formats")[1].splitlines())

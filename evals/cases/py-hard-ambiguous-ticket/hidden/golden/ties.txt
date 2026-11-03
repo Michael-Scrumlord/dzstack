@@ -1,0 +1,14 @@
+INVOICE (draft)                                        Issued 2026-04-30
+Tie Breakers (DE)
+
+SKU        Description                     Qty   Unit price       Amount
+------------------------------------------------------------------------
+T1         half cent tax                     1        $1.50        $1.50
+T2         half cent tax                     1        $1.50        $1.50
+T3         half cent amount                0.5        $3.03        $1.52
+------------------------------------------------------------------------
+                                    Subtotal                       $4.52
+                                    Tax                            $0.69
+                                    TOTAL                          $5.21
+
+Payment due within 30 days of the invoice date.

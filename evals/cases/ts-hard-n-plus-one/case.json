@@ -1,0 +1,7 @@
+{
+  "title": "The projects page takes 8 s for big teams (N+1 queries, whole-listing pagination)",
+  "kind": "perf",
+  "tags": ["hard", "typescript", "perf"],
+  "max_turns": 120,
+  "timeout_s": 2400
+}

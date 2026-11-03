@@ -1,0 +1,6 @@
+{
+  "name": "release-picker",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}

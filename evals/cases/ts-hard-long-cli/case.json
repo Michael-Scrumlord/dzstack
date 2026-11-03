@@ -1,0 +1,7 @@
+{
+  "title": "A long feature: five CLI commands from a written specification, with atomic file writes",
+  "kind": "feature",
+  "tags": ["hard", "typescript", "feature", "long"],
+  "max_turns": 120,
+  "timeout_s": 2400
+}

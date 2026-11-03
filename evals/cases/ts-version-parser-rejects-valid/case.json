@@ -1,0 +1,7 @@
+{
+  "title": "A reported bug: the updater skips valid release candidates like 2.1.0-rc.1+build.7",
+  "kind": "bug-fix",
+  "tags": ["typescript", "bug-fix", "parsing"],
+  "max_turns": 40,
+  "timeout_s": 900
+}

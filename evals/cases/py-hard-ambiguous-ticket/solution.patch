@@ -1,0 +1,423 @@
+diff --git a/NOTES.md b/NOTES.md
+new file mode 100644
+index 0000000..948bfd8
+--- /dev/null
++++ b/NOTES.md
+@@ -0,0 +1,13 @@
++# Discounts: notes
++
++Everything the docs settle I followed as written: discounts come off before tax and tax stays per line (ADR-0003, ADR-0006), they apply in the listed order, percent discounts are rounded per line with `round_cents` (ADR-0002), nothing goes below zero, each discount is its own row in the printed and the emailed invoice, issued invoices without discount fields still print and export (ADR-0004), and the CSV keeps its columns with `subtotal + tax = total` (ADR-0005). The document and computed field names are the ones in `docs/invoice-format.md`.
++
++## A decision I had to make
++
++**How a fixed discount is spread over the lines.** The docs say a fixed discount takes exactly its amount off the invoice (or what is left), but tax is per line, the computed form needs a `discount_cents` per line, and nothing says which lines it lands on. With mixed tax rates the answer changes the tax by a few cents, so it is not cosmetic.
++
++I spread it in proportion to each line's net at that point (`calc.spread_fixed`), giving leftover cents to the largest fractional share, earlier line first. Reasons: the shares add up to the amount to the cent, no share exceeds its line, it does not depend on line order, and every line's tax falls by about the same percentage. The alternative, taking it off the first line until that is used up, is simpler but makes tax depend on which line comes first.
++
++If product prefers another rule, only `spread_fixed` changes.
++
++Percent discounts are not affected: they apply to each line separately.
+diff --git a/billing/calc.py b/billing/calc.py
+index f8a645c..40e65f7 100644
+--- a/billing/calc.py
++++ b/billing/calc.py
+@@ -1,17 +1,54 @@
+ """Compute an invoice's amounts. Everything is whole cents; every rounding is money.round_cents."""
+ from __future__ import annotations
+ 
+-from .models import ComputedInvoice, ComputedLine, Invoice
++from decimal import Decimal
++
++from .models import ComputedDiscount, ComputedInvoice, ComputedLine, Invoice
+ from .money import round_cents
+ from .taxes import tax_cents
+ 
+ 
++def spread_fixed(amount: int, nets: list[int]) -> list[int]:
++    """Split a fixed discount over the lines in proportion to what each line has left (ADR-0006 leaves the split open).
++
++    The shares add up to exactly min(amount, sum(nets)), and no share is more than its line's net. Leftover
++    cents go to the lines with the largest fractional share, the earlier line first on a tie.
++    """
++    total = sum(nets)
++    take = min(amount, total)
++    if take == 0:
++        return [0] * len(nets)
++    shares = [take * net // total for net in nets]
++    by_remainder = sorted(range(len(nets)), key=lambda i: (-(take * nets[i] % total), i))
++    for i in by_remainder[: take - sum(shares)]:
++        shares[i] += 1
++    return shares
++
++
+ def compute(invoice: Invoice) -> ComputedInvoice:
++    amounts = [round_cents(line.quantity * line.unit_price_cents) for line in invoice.lines]
++    nets = list(amounts)
++    applied = []
++    for discount in invoice.discounts:
++        if discount.kind == "percent":
++            cuts = [round_cents(Decimal(net) * discount.percent / 100) for net in nets]
++        else:
++            cuts = spread_fixed(discount.amount_cents, nets)
++        nets = [net - cut for net, cut in zip(nets, cuts)]
++        applied.append(sum(cuts))
+     lines = []
+-    for line in invoice.lines:
+-        amount = round_cents(line.quantity * line.unit_price_cents)
+-        tax = tax_cents(amount, line.tax_code, invoice.customer.country)
+-        lines.append(ComputedLine(line, amount, tax))
+-    subtotal = sum(line.amount_cents for line in lines)
++    for line, amount, net in zip(invoice.lines, amounts, nets):
++        tax = tax_cents(net, line.tax_code, invoice.customer.country)
++        lines.append(ComputedLine(line, amount, amount - net, net, tax))
++    subtotal = sum(amounts)
++    discount_total = sum(applied)
+     tax = sum(line.tax_cents for line in lines)
+-    return ComputedInvoice(invoice, tuple(lines), subtotal, tax, subtotal + tax)
++    return ComputedInvoice(
++        invoice,
++        tuple(lines),
++        tuple(ComputedDiscount(d, cents) for d, cents in zip(invoice.discounts, applied)),
++        subtotal,
++        discount_total,
++        tax,
++        subtotal - discount_total + tax,
++    )
+diff --git a/billing/document.py b/billing/document.py
+index a9bd546..8c9f222 100644
+--- a/billing/document.py
++++ b/billing/document.py
+@@ -4,14 +4,16 @@ from __future__ import annotations
+ from datetime import date
+ 
+ from .errors import DocumentError
+-from .models import Customer, Invoice, Line
++from .models import Customer, Discount, Invoice, Line
+ from .money import CURRENCIES, parse_decimal
+ from .taxes import TAX_CODES
+ 
+-TOP_KEYS = {"number", "customer", "currency", "issued", "terms_days", "notes", "lines"}
++TOP_KEYS = {"number", "customer", "currency", "issued", "terms_days", "notes", "lines", "discounts"}
+ CUSTOMER_KEYS = {"name", "country", "email"}
+ LINE_KEYS = {"sku", "description", "quantity", "unit_price_cents", "tax_code"}
++DISCOUNT_KEYS = {"label", "kind", "percent", "amount_cents"}
+ MAX_LINES = 200
++MAX_DISCOUNTS = 5
+ 
+ 
+ def _object(value, where: str, allowed: set[str], required: set[str]) -> dict:
+@@ -73,6 +75,29 @@ def _line(raw, index: int) -> Line:
+     )
+ 
+ 
++def _discount(raw, index: int) -> Discount:
++    where = f"discounts[{index}]"
++    raw = _object(raw, where, DISCOUNT_KEYS, {"label", "kind"})
++    label = _text(raw["label"], f"{where}.label", max_length=60)
++    kind = raw["kind"]
++    if kind == "percent":
++        if "amount_cents" in raw:
++            raise DocumentError(f"{where}: unknown field 'amount_cents' (a percent discount takes 'percent')")
++        if "percent" not in raw:
++            raise DocumentError(f"{where}: missing field 'percent'")
++        percent = parse_decimal(raw["percent"], f"{where}.percent")
++        if not 0 < percent <= 100:
++            raise DocumentError(f"{where}.percent must be greater than 0 and at most 100")
++        return Discount(label, kind, percent=percent)
++    if kind == "fixed":
++        if "percent" in raw:
++            raise DocumentError(f"{where}: unknown field 'percent' (a fixed discount takes 'amount_cents')")
++        if "amount_cents" not in raw:
++            raise DocumentError(f"{where}: missing field 'amount_cents'")
++        return Discount(label, kind, amount_cents=_whole(raw["amount_cents"], f"{where}.amount_cents", minimum=1))
++    raise DocumentError(f"{where}.kind must be 'percent' or 'fixed'")
++
++
+ def parse_invoice(doc) -> Invoice:
+     """Validate a document (the dict a JSON file holds) and return the Invoice it describes."""
+     doc = _object(doc, "invoice", TOP_KEYS, {"customer", "issued", "lines"})
+@@ -88,6 +113,11 @@ def parse_invoice(doc) -> Invoice:
+         raise DocumentError("lines must be a non-empty list")
+     if len(lines) > MAX_LINES:
+         raise DocumentError(f"an invoice has at most {MAX_LINES} lines")
++    discounts = doc.get("discounts", [])
++    if not isinstance(discounts, list):
++        raise DocumentError("discounts must be a list")
++    if len(discounts) > MAX_DISCOUNTS:
++        raise DocumentError(f"an invoice has at most {MAX_DISCOUNTS} discounts")
+     number = doc.get("number")
+     if number is not None:
+         number = _text(number, "number", max_length=20)
+@@ -99,6 +129,7 @@ def parse_invoice(doc) -> Invoice:
+         number=number,
+         terms_days=_whole(doc.get("terms_days", 30), "terms_days", minimum=0),
+         notes=_text(doc.get("notes", ""), "notes", max_length=500, blank_ok=True),
++        discounts=tuple(_discount(raw, i) for i, raw in enumerate(discounts)),
+     )
+ 
+ 
+diff --git a/billing/export.py b/billing/export.py
+index 4815304..6e4767e 100644
+--- a/billing/export.py
++++ b/billing/export.py
+@@ -15,9 +15,11 @@ def export_csv(invoices: Iterable[dict]) -> str:
+     writer = csv.writer(out, lineterminator="\n")
+     writer.writerow(COLUMNS)
+     for data in sorted(invoices, key=lambda d: d["number"]):
+-        subtotal = data["subtotal_cents"]
++        # `subtotal` is what the customer is charged before tax (ADR-0005): the amounts less any discounts.
++        # Invoices stored before discounts existed have no discount_cents.
++        subtotal = data["subtotal_cents"] - data.get("discount_cents", 0)
+         tax = data["tax_cents"]
+-        total = subtotal + tax
++        total = data["total_cents"]
+         writer.writerow(
+             [data["number"], data["issued"], data["customer"]["name"], data["currency"],
+              plain_amount(subtotal), plain_amount(tax), plain_amount(total)]
+diff --git a/billing/models.py b/billing/models.py
+index 0baa928..c0d8262 100644
+--- a/billing/models.py
++++ b/billing/models.py
+@@ -22,6 +22,16 @@ class Line:
+     tax_code: str = "standard"
+ 
+ 
++@dataclass(frozen=True)
++class Discount:
++    """A discount on the whole invoice: a percentage (`percent`) or a fixed sum (`amount_cents`)."""
++
++    label: str
++    kind: str
++    percent: Decimal | None = None
++    amount_cents: int | None = None
++
++
+ @dataclass(frozen=True)
+ class Invoice:
+     customer: Customer
+@@ -31,12 +41,15 @@ class Invoice:
+     number: str | None = None
+     terms_days: int = 30
+     notes: str = ""
++    discounts: tuple[Discount, ...] = ()
+ 
+ 
+ @dataclass(frozen=True)
+ class ComputedLine:
+     line: Line
+     amount_cents: int
++    discount_cents: int
++    net_cents: int
+     tax_cents: int
+ 
+     def to_dict(self) -> dict:
+@@ -47,15 +60,35 @@ class ComputedLine:
+             "unit_price_cents": self.line.unit_price_cents,
+             "tax_code": self.line.tax_code,
+             "amount_cents": self.amount_cents,
++            "discount_cents": self.discount_cents,
++            "net_cents": self.net_cents,
+             "tax_cents": self.tax_cents,
+         }
+ 
+ 
++@dataclass(frozen=True)
++class ComputedDiscount:
++    discount: Discount
++    applied_cents: int
++
++    def to_dict(self) -> dict:
++        d = self.discount
++        out = {"label": d.label, "kind": d.kind}
++        if d.kind == "percent":
++            out["percent"] = format(d.percent, "f")
++        else:
++            out["amount_cents"] = d.amount_cents
++        out["applied_cents"] = self.applied_cents
++        return out
++
++
+ @dataclass(frozen=True)
+ class ComputedInvoice:
+     invoice: Invoice
+     lines: tuple[ComputedLine, ...]
++    discounts: tuple[ComputedDiscount, ...]
+     subtotal_cents: int
++    discount_cents: int
+     tax_cents: int
+     total_cents: int
+ 
+@@ -72,7 +105,9 @@ class ComputedInvoice:
+             "terms_days": inv.terms_days,
+             "notes": inv.notes,
+             "lines": [line.to_dict() for line in self.lines],
++            "discounts": [d.to_dict() for d in self.discounts],
+             "subtotal_cents": self.subtotal_cents,
++            "discount_cents": self.discount_cents,
+             "tax_cents": self.tax_cents,
+             "total_cents": self.total_cents,
+         }
+diff --git a/billing/render_html.py b/billing/render_html.py
+index a4b0eda..c17a1c8 100644
+--- a/billing/render_html.py
++++ b/billing/render_html.py
+@@ -22,8 +22,14 @@ def render_html(data: dict) -> str:
+             f"<td class=\"num\">{money(line['amount_cents'])}</td>"
+             "</tr>"
+         )
++    discounts = [
++        f"<tr class=\"discount\"><th colspan=\"4\">{escape('Discount (' + d['label'] + ')')}</th>"
++        f"<td class=\"num\">{money(-d['applied_cents'])}</td></tr>"
++        for d in data.get("discounts", [])
++    ]
+     foot = [
+         f"<tr class=\"subtotal\"><th colspan=\"4\">Subtotal</th><td class=\"num\">{money(data['subtotal_cents'])}</td></tr>",
++        *discounts,
+         f"<tr class=\"tax\"><th colspan=\"4\">Tax</th><td class=\"num\">{money(data['tax_cents'])}</td></tr>",
+         f"<tr class=\"total\"><th colspan=\"4\">Total</th><td class=\"num\">{money(data['total_cents'])}</td></tr>",
+     ]
+diff --git a/billing/render_text.py b/billing/render_text.py
+index 17bb544..1a12dfc 100644
+--- a/billing/render_text.py
++++ b/billing/render_text.py
+@@ -34,6 +34,8 @@ def render_text(data: dict) -> str:
+             + right(money(line["amount_cents"]), 12)
+         )
+     out += [RULE, total_row("Subtotal", money(data["subtotal_cents"]))]
++    for discount in data.get("discounts", []):
++        out.append(total_row(f"Discount ({discount['label']})", money(-discount["applied_cents"])))
+     out += [total_row("Tax", money(data["tax_cents"])), total_row("TOTAL", money(data["total_cents"])), ""]
+     out.append(TERMS_LINE.format(days=data["terms_days"]))
+     if data.get("notes"):
+diff --git a/tests/test_discounts.py b/tests/test_discounts.py
+new file mode 100644
+index 0000000..85ed3df
+--- /dev/null
++++ b/tests/test_discounts.py
+@@ -0,0 +1,126 @@
++import csv
++import io
++
++import pytest
++
++from billing import api
++from billing.errors import DocumentError
++from billing.export import export_csv
++from billing.store import Store
++
++
++def one_line(cents=10000, tax_code="standard", **extra):
++    return {"customer": {"name": "Acme GmbH", "country": "DE"}, "issued": "2026-03-02", **extra,
++            "lines": [{"sku": "X", "quantity": "1", "unit_price_cents": cents, "tax_code": tax_code}]}
++
++
++def test_percent_discount_comes_off_before_tax():
++    out = api.compute(one_line(discounts=[{"label": "Loyalty", "kind": "percent", "percent": "10"}]))
++    assert (out["subtotal_cents"], out["discount_cents"], out["tax_cents"], out["total_cents"]) == (10000, 1000, 1710, 10710)
++    assert out["lines"][0]["net_cents"] == 9000 and out["discounts"][0]["applied_cents"] == 1000
++
++
++def test_discounts_stack_in_the_listed_order():
++    two_percents = api.compute(one_line(discounts=[
++        {"label": "A", "kind": "percent", "percent": "10"}, {"label": "B", "kind": "percent", "percent": "10"}]))
++    assert two_percents["discount_cents"] == 1900
++    fixed_first = api.compute(one_line(discounts=[
++        {"label": "A", "kind": "fixed", "amount_cents": 1000}, {"label": "B", "kind": "percent", "percent": "10"}]))
++    assert fixed_first["discount_cents"] == 1900
++    percent_first = api.compute(one_line(discounts=[
++        {"label": "B", "kind": "percent", "percent": "10"}, {"label": "A", "kind": "fixed", "amount_cents": 1000}]))
++    assert percent_first["discount_cents"] == 2000
++
++
++def test_percent_discounts_are_rounded_per_line_half_up():
++    doc = one_line(1030, "exempt", discounts=[{"label": "D", "kind": "percent", "percent": "15"}])
++    doc["lines"].append(dict(doc["lines"][0]))
++    out = api.compute(doc)
++    assert [line["discount_cents"] for line in out["lines"]] == [155, 155]  # 154.5 each; not 309 for the pair
++    assert out["discount_cents"] == 310
++
++
++def test_a_discount_never_takes_more_than_is_left():
++    out = api.compute(one_line(500, "exempt", discounts=[{"label": "Big", "kind": "fixed", "amount_cents": 800}]))
++    assert (out["discounts"][0]["applied_cents"], out["total_cents"]) == (500, 0)
++    out = api.compute(one_line(6000, discounts=[
++        {"label": "A", "kind": "percent", "percent": "60"}, {"label": "B", "kind": "fixed", "amount_cents": 5000}]))
++    assert (out["discount_cents"], out["tax_cents"], out["total_cents"]) == (6000, 0, 0)
++    out = api.compute(one_line(discounts=[{"label": "Free", "kind": "percent", "percent": "100"}]))
++    assert out["total_cents"] == 0
++
++
++def test_a_fixed_discount_takes_exactly_its_amount_across_lines():
++    doc = one_line(3333, "exempt", discounts=[{"label": "Credit", "kind": "fixed", "amount_cents": 1000}])
++    doc["lines"] += [dict(doc["lines"][0]), dict(doc["lines"][0], unit_price_cents=3334)]
++    out = api.compute(doc)
++    assert out["discount_cents"] == 1000 and out["total_cents"] == 9000
++    assert sum(line["discount_cents"] for line in out["lines"]) == 1000
++    assert all(0 <= line["discount_cents"] <= line["amount_cents"] for line in out["lines"])
++
++
++def test_the_computed_form_always_has_the_discount_fields():
++    out = api.compute(one_line())
++    assert out["discounts"] == [] and out["discount_cents"] == 0
++    assert out["lines"][0]["discount_cents"] == 0 and out["lines"][0]["net_cents"] == out["lines"][0]["amount_cents"]
++
++
++@pytest.mark.parametrize("entry", [
++    {"label": "x", "kind": "percent", "percent": "0"}, {"label": "x", "kind": "percent", "percent": "100.5"},
++    {"label": "x", "kind": "percent", "percent": 10}, {"label": "x", "kind": "percent"},
++    {"label": "x", "kind": "percent", "percent": "10", "amount_cents": 5},
++    {"label": "x", "kind": "fixed", "amount_cents": 0}, {"label": "x", "kind": "fixed", "amount_cents": 12.5},
++    {"label": "x", "kind": "fixed", "amount_cents": True}, {"label": "x", "kind": "fixed", "percent": "5"},
++    {"label": "", "kind": "fixed", "amount_cents": 5}, {"kind": "fixed", "amount_cents": 5},
++    {"label": "x", "kind": "bogus"}, {"label": "x", "kind": "fixed", "amount_cents": 5, "extra": 1}, "10%",
++])
++def test_invalid_discounts(entry):
++    with pytest.raises(DocumentError):
++        api.compute(one_line(discounts=[entry]))
++
++
++def test_at_most_five_discounts_and_it_must_be_a_list():
++    five = [{"label": str(i), "kind": "percent", "percent": "1"} for i in range(5)]
++    api.compute(one_line(discounts=five))
++    with pytest.raises(DocumentError, match="at most 5"):
++        api.compute(one_line(discounts=five + five[:1]))
++    with pytest.raises(DocumentError, match="must be a list"):
++        api.compute(one_line(discounts={"label": "x"}))
++
++
++def test_the_discount_is_its_own_row_in_both_renderings():
++    doc = one_line(discounts=[{"label": "Loyalty <10%>", "kind": "percent", "percent": "10"}])
++    lines = api.render(doc).splitlines()
++    rows = [line.split()[0] for line in lines if line.startswith(" " * 36)]
++    assert rows == ["Subtotal", "Discount", "Tax", "TOTAL"]
++    assert any(line.startswith(" " * 36 + "Discount (Loyalty <10%>)") and line.endswith("-$10.00") for line in lines)
++    html = api.render(doc, "html")
++    assert '<tr class="discount"><th colspan="4">Discount (Loyalty &lt;10%&gt;)</th><td class="num">-$10.00</td></tr>' in html
++    assert html.index('class="subtotal"') < html.index('class="discount"') < html.index('class="tax"')
++
++
++def test_export_keeps_its_columns_and_subtotal_plus_tax_is_total(tmp_path):
++    store = Store(tmp_path)
++    store.issue(one_line())
++    store.issue(one_line(discounts=[{"label": "Loyalty", "kind": "percent", "percent": "10"}]))
++    out = list(csv.DictReader(io.StringIO(export_csv(store.all()))))
++    assert list(out[0]) == ["number", "issued", "customer", "currency", "subtotal", "tax", "total"]
++    assert (out[0]["subtotal"], out[0]["tax"], out[0]["total"]) == ("100.00", "19.00", "119.00")
++    assert (out[1]["subtotal"], out[1]["tax"], out[1]["total"]) == ("90.00", "17.10", "107.10")
++
++
++def test_invoices_stored_before_discounts_still_print_and_export(tmp_path):
++    store = Store(tmp_path)
++    number = store.issue(one_line())
++    path = tmp_path / "invoices" / f"{number}.json"
++    import json
++
++    old = json.loads(path.read_text())
++    for key in ("discounts", "discount_cents"):
++        del old[key]
++    for line in old["lines"]:
++        del line["discount_cents"], line["net_cents"]
++    path.write_text(json.dumps(old))
++    assert "TOTAL" in store.show(number) and "Discount" not in store.show(number)
++    assert "<tr class=\"total\">" in store.show(number, "html")
++    assert "2026-0001,2026-03-02,Acme GmbH,USD,100.00,19.00,119.00" in export_csv(store.all())

@@ -1,0 +1,14 @@
+INVOICE (draft)                                        Issued 2026-02-27
+Brightside Ltd (GB)
+
+SKU        Description                     Qty   Unit price       Amount
+------------------------------------------------------------------------
+CONSULT    Consulting, a very long d…      7.5       £95.00      £712.50
+TRAVEL     Travel                            1      £187.55      £187.55
+BOOK       Handbook                          2       £19.99       £39.98
+------------------------------------------------------------------------
+                                    Subtotal                     £940.03
+                                    Tax                          £144.50
+                                    TOTAL                      £1,084.53
+
+Payment due within 14 days of the invoice date.

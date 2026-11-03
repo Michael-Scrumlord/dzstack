@@ -1,0 +1,1 @@
+Can you review this pull request (PR.diff) before I merge it? Write your findings to REVIEW.md, most serious first, each with the file and line. I only want the review, so please leave the code as it is. Tests run with `python3 -m pytest`.

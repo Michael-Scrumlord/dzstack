@@ -1,0 +1,17 @@
+diff --git a/NOTES.md b/NOTES.md
+new file mode 100644
+index 0000000..945e374
+--- /dev/null
++++ b/NOTES.md
+@@ -0,0 +1,11 @@
++# formatAmount rounding: working as intended
++
++`formatAmount(2.5)` returns `$0.02` and `formatDollars(0.125)` returns `$0.12` because the module rounds half to even ("banker's rounding"), on purpose. Both inputs are exact ties (2.5 cents and 12.5 cents), and a tie goes to the even cent: 2.5 becomes 2, 12.5 becomes 12, while 3.5 becomes 4 and 13.5 becomes 14. Anything not exactly halfway rounds to the nearest cent as usual. I did not change any code.
++
++Where it is written down:
++
++- `README.md`, section "Rounding": the finance team requires half to even for the ledger reports, so rounding error cancels out instead of drifting upward over thousands of lines, and totals reconcile with the bank's statements.
++- The comment above `roundHalfEven` in `src/money.ts` says the same and asks for finance's sign-off before switching to half-up.
++- `test/money.test.ts` ("rounds half to even, not half up", "a half cent is formatted to the even cent") and `test/ledger.test.ts` pin the behavior.
++
++If the teammate needs half-up somewhere else, for example a customer-facing price display, the ledger default should stay as it is. Agree it with finance first, then add an explicit opt-in, such as a separate `roundHalfUp` helper or a `rounding` option on `formatAmount` that defaults to half to even, and use it only at that call site. Changing `roundHalfEven` itself would change every ledger figure.

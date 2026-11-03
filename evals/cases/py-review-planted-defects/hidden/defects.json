@@ -1,0 +1,20 @@
+[
+  {
+    "id": "sqli",
+    "file": "app/members.py",
+    "start": "sql = f\"SELECT id, name, email FROM members WHERE name LIKE",
+    "end": null
+  },
+  {
+    "id": "txn",
+    "file": "app/loans.py",
+    "start": "for book_id in book_ids:",
+    "end": "conn.commit()"
+  },
+  {
+    "id": "boundary",
+    "file": "app/reports.py",
+    "start": "if _days_late(row, today) >= GRACE_DAYS",
+    "end": null
+  }
+]

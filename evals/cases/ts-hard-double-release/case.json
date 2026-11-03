@@ -1,0 +1,7 @@
+{
+  "title": "A support report: available stock sometimes goes above the warehouse count after cancellations",
+  "kind": "bug-fix",
+  "tags": ["hard", "typescript", "bug-fix"],
+  "max_turns": 120,
+  "timeout_s": 2400
+}

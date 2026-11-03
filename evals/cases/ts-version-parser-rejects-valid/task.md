@@ -1,0 +1,1 @@
+The updater skipped our newest release candidate this morning. Its log says `2.1.0-rc.1+build.7` isn't a valid version, but that's a normal release candidate of 2.1.0, so it should have been picked up with pre-releases switched on. Please fix it. `npm test` runs the tests.

@@ -1,0 +1,9 @@
+{
+  "name": "teamboard-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "profile": "node scripts/profile.ts"
+  }
+}

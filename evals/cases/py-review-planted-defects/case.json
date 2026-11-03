@@ -1,0 +1,8 @@
+{
+  "title": "Review a pull request that hides three real defects among harmless style choices",
+  "kind": "review",
+  "tags": ["quick", "python", "review"],
+  "max_turns": 30,
+  "timeout_s": 900,
+  "judge_files": ["REVIEW.md"]
+}

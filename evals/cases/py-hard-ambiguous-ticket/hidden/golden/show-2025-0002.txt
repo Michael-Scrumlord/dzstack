@@ -1,0 +1,15 @@
+INVOICE 2025-0002                                      Issued 2025-12-15
+Acme GmbH (DE)
+ap@acme.example
+
+SKU        Description                     Qty   Unit price       Amount
+------------------------------------------------------------------------
+SUB-PRO    Pro plan, March                   1       $49.00       $49.00
+SEAT       Extra seat                        3       $12.50       $37.50
+------------------------------------------------------------------------
+                                    Subtotal                      $86.50
+                                    Tax                           $11.94
+                                    TOTAL                         $98.44
+
+Payment due within 30 days of the invoice date.
+Notes: PO 77

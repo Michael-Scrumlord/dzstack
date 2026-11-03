@@ -1,0 +1,264 @@
+diff --git a/src/validators.ts b/src/validators.ts
+index 6e5b824..503afc5 100644
+--- a/src/validators.ts
++++ b/src/validators.ts
+@@ -36,166 +36,108 @@ export interface InviteInput {
+   message?: string;
+ }
+ 
+-export function validateSignup(input: SignupInput): ValidationResult {
+-  const errors: FieldError[] = [];
++const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
++const ROLES = ["viewer", "editor", "admin"];
+ 
+-  // Email: trimmed, at most 254 characters.
+-  const email = input.email.trim();
+-  if (email === "") {
+-    errors.push({ field: "email", message: "Email is required" });
+-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+-    errors.push({ field: "email", message: "Enter a valid email address" });
+-  } else if (email.length > 254) {
+-    errors.push({ field: "email", message: "Email is too long (max 254 characters)" });
+-  }
+-
+-  // Username: trimmed, lowercase letters, digits and underscores.
+-  const username = input.username.trim();
+-  if (username === "") {
+-    errors.push({ field: "username", message: "Username is required" });
+-  } else if (username.length < 3 || username.length > 20) {
+-    errors.push({ field: "username", message: "Username must be 3-20 characters" });
+-  } else if (!/^[a-z0-9_]+$/.test(username)) {
+-    errors.push({ field: "username", message: "Username may only contain lowercase letters, digits and underscores" });
+-  }
+-
+-  // Display name: optional here, a blank one is ignored.
+-  if (input.displayName !== undefined) {
+-    const displayName = input.displayName.trim();
+-    if (displayName !== "" && displayName.length > 40) {
+-      errors.push({ field: "displayName", message: "Display name is too long (max 40 characters)" });
+-    }
+-  }
+-
+-  // Password: never trimmed, spaces count.
+-  const password = input.password;
+-  if (password === "") {
+-    errors.push({ field: "password", message: "Password is required" });
+-  } else if (password.length < 10) {
+-    errors.push({ field: "password", message: "Password must be at least 10 characters" });
+-  } else if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+-    errors.push({ field: "password", message: "Password needs a letter and a digit" });
+-  }
+-
+-  // Phone: optional here, trimmed, a blank one is ignored.
+-  if (input.phone !== undefined) {
+-    const phone = input.phone.trim();
+-    if (phone !== "" && !/^\+?[0-9 ()-]{7,20}$/.test(phone)) {
+-      errors.push({ field: "phone", message: "Enter a valid phone number" });
+-    }
+-  }
+-
+-  // Company: optional, trimmed, at most 60 characters.
+-  if (input.company !== undefined) {
+-    const company = input.company.trim();
+-    if (company.length > 60) {
+-      errors.push({ field: "company", message: "Company is too long (max 60 characters)" });
+-    }
+-  }
+-
+-  if (!input.acceptTerms) {
+-    errors.push({ field: "acceptTerms", message: "You must accept the terms" });
+-  }
++type Problem = string | undefined;
+ 
+-  return errors.length === 0 ? { ok: true } : { ok: false, errors };
++function tooLong(label: string, value: string, max: number): Problem {
++  return value.length > max ? `${label} is too long (max ${max} characters)` : undefined;
+ }
+ 
+-export function validateProfileUpdate(input: ProfileUpdateInput): ValidationResult {
+-  const errors: FieldError[] = [];
++// The email rules are shared; the callers differ in the limit and the wording.
++function emailProblem(email: string, rules: { blank: string; invalid: string; max: number }): Problem {
++  if (email === "") return rules.blank;
++  if (!EMAIL_PATTERN.test(email)) return rules.invalid;
++  return tooLong("Email", email, rules.max);
++}
+ 
+-  // Every field is optional: undefined means "leave it as it is".
+-
+-  // Email: NOT trimmed here (a stray space is reported), at most 120 characters.
+-  if (input.email !== undefined) {
+-    const email = input.email;
+-    if (email === "") {
+-      errors.push({ field: "email", message: "Email cannot be empty" });
+-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+-      errors.push({ field: "email", message: "Enter a valid email address" });
+-    } else if (email.length > 120) {
+-      errors.push({ field: "email", message: "Email is too long (max 120 characters)" });
+-    }
+-  }
+-
+-  // Username: trimmed; dots are allowed (accounts imported from the old forum).
+-  if (input.username !== undefined) {
+-    const username = input.username.trim();
+-    if (username === "") {
+-      errors.push({ field: "username", message: "Username cannot be empty" });
+-    } else if (username.length < 3 || username.length > 20) {
+-      errors.push({ field: "username", message: "Username must be 3-20 characters" });
+-    } else if (!/^[a-z0-9_.]+$/.test(username)) {
+-      errors.push({
+-        field: "username",
+-        message: "Username may only contain lowercase letters, digits, underscores and dots",
+-      });
+-    }
+-  }
+-
+-  // Display name: trimmed; blank is an error here.
+-  if (input.displayName !== undefined) {
+-    const displayName = input.displayName.trim();
+-    if (displayName === "") {
+-      errors.push({ field: "displayName", message: "Display name cannot be empty" });
+-    } else if (displayName.length > 40) {
+-      errors.push({ field: "displayName", message: "Display name is too long (max 40 characters)" });
+-    }
+-  }
+-
+-  // Phone: trimmed; an empty one is fine (it clears the number).
+-  if (input.phone !== undefined) {
+-    const phone = input.phone.trim();
+-    if (phone !== "" && !/^\+?[0-9 ()-]{7,20}$/.test(phone)) {
+-      errors.push({ field: "phone", message: "Enter a valid phone number" });
+-    }
+-  }
+-
+-  // Company: trimmed, at most 60 characters; empty is fine (it clears the company).
+-  if (input.company !== undefined) {
+-    const company = input.company.trim();
+-    if (company.length > 60) {
+-      errors.push({ field: "company", message: "Company is too long (max 60 characters)" });
+-    }
+-  }
+-
+-  // Bio: not trimmed; empty is fine (it clears the bio).
+-  if (input.bio !== undefined) {
+-    if (input.bio.length > 160) {
+-      errors.push({ field: "bio", message: "Bio is too long (max 160 characters)" });
+-    }
+-  }
++// Usernames are 3-20 characters; the callers differ in the characters they accept and the wording.
++function usernameProblem(username: string, rules: { blank: string; pattern: RegExp; invalid: string }): Problem {
++  if (username === "") return rules.blank;
++  if (username.length < 3 || username.length > 20) return "Username must be 3-20 characters";
++  return rules.pattern.test(username) ? undefined : rules.invalid;
++}
+ 
+-  return errors.length === 0 ? { ok: true } : { ok: false, errors };
++function passwordProblem(password: string): Problem {
++  if (password === "") return "Password is required";
++  if (password.length < 10) return "Password must be at least 10 characters";
++  return /[A-Za-z]/.test(password) && /\d/.test(password) ? undefined : "Password needs a letter and a digit";
+ }
+ 
+-export function validateInvite(input: InviteInput): ValidationResult {
+-  const errors: FieldError[] = [];
++// Phone and company are checked the same way in both forms; a blank value is fine.
++function phoneProblem(phone: string): Problem {
++  return phone === "" || /^\+?[0-9 ()-]{7,20}$/.test(phone) ? undefined : "Enter a valid phone number";
++}
++
++function roleProblem(role: string): Problem {
++  if (role === "") return "Role is required";
++  return ROLES.includes(role) ? undefined : "Role must be viewer, editor or admin";
++}
+ 
+-  // Email: trimmed, at most 254 characters, and its own wording for "invalid".
+-  const email = input.email.trim();
+-  if (email === "") {
+-    errors.push({ field: "email", message: "Email is required" });
+-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+-    errors.push({ field: "email", message: "Enter a valid email address for the invitee" });
+-  } else if (email.length > 254) {
+-    errors.push({ field: "email", message: "Email is too long (max 254 characters)" });
+-  }
+-
+-  // Role: exact match, not trimmed.
+-  const role = input.role;
+-  if (role === "") {
+-    errors.push({ field: "role", message: "Role is required" });
+-  } else if (role !== "viewer" && role !== "editor" && role !== "admin") {
+-    errors.push({ field: "role", message: "Role must be viewer, editor or admin" });
+-  }
+-
+-  // Message: optional, trimmed before counting.
+-  if (input.message !== undefined) {
+-    const message = input.message.trim();
+-    if (message.length > 200) {
+-      errors.push({ field: "message", message: "Message is too long (max 200 characters)" });
+-    }
+-  }
++// undefined means "not sent": there is nothing to check.
++function ifSent(value: string | undefined, check: (value: string) => Problem): Problem {
++  return value === undefined ? undefined : check(value);
++}
+ 
++function collect(checks: [field: string, problem: Problem][]): ValidationResult {
++  const errors: FieldError[] = [];
++  for (const [field, message] of checks) if (message !== undefined) errors.push({ field, message });
+   return errors.length === 0 ? { ok: true } : { ok: false, errors };
+ }
++
++export function validateSignup(input: SignupInput): ValidationResult {
++  return collect([
++    ["email", emailProblem(input.email.trim(), { blank: "Email is required", invalid: "Enter a valid email address", max: 254 })],
++    [
++      "username",
++      usernameProblem(input.username.trim(), {
++        blank: "Username is required",
++        pattern: /^[a-z0-9_]+$/,
++        invalid: "Username may only contain lowercase letters, digits and underscores",
++      }),
++    ],
++    // Optional here: a blank display name is ignored.
++    ["displayName", ifSent(input.displayName, (v) => tooLong("Display name", v.trim(), 40))],
++    ["password", passwordProblem(input.password)],
++    ["phone", ifSent(input.phone, (v) => phoneProblem(v.trim()))],
++    ["company", ifSent(input.company, (v) => tooLong("Company", v.trim(), 60))],
++    ["acceptTerms", input.acceptTerms ? undefined : "You must accept the terms"],
++  ]);
++}
++
++export function validateProfileUpdate(input: ProfileUpdateInput): ValidationResult {
++  return collect([
++    // The email is not trimmed here, and the limit is the old profile column's.
++    ["email", ifSent(input.email, (v) => emailProblem(v, { blank: "Email cannot be empty", invalid: "Enter a valid email address", max: 120 }))],
++    [
++      "username",
++      ifSent(input.username, (v) =>
++        usernameProblem(v.trim(), {
++          blank: "Username cannot be empty",
++          pattern: /^[a-z0-9_.]+$/,
++          invalid: "Username may only contain lowercase letters, digits, underscores and dots",
++        }),
++      ),
++    ],
++    [
++      "displayName",
++      ifSent(input.displayName, (v) => (v.trim() === "" ? "Display name cannot be empty" : tooLong("Display name", v.trim(), 40))),
++    ],
++    ["phone", ifSent(input.phone, (v) => phoneProblem(v.trim()))],
++    ["company", ifSent(input.company, (v) => tooLong("Company", v.trim(), 60))],
++    // The bio is not trimmed, and an empty one is fine.
++    ["bio", ifSent(input.bio, (v) => tooLong("Bio", v, 160))],
++  ]);
++}
++
++export function validateInvite(input: InviteInput): ValidationResult {
++  return collect([
++    [
++      "email",
++      emailProblem(input.email.trim(), { blank: "Email is required", invalid: "Enter a valid email address for the invitee", max: 254 }),
++    ],
++    ["role", roleProblem(input.role)],
++    ["message", ifSent(input.message, (v) => tooLong("Message", v.trim(), 200))],
++  ]);
++}

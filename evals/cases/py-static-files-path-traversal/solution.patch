@@ -1,0 +1,100 @@
+diff --git a/staticsite/handler.py b/staticsite/handler.py
+index 4fdd95d..a2df39f 100644
+--- a/staticsite/handler.py
++++ b/staticsite/handler.py
+@@ -8,21 +8,34 @@ from urllib.parse import unquote
+ INDEX_NAME = "index.html"
+ 
+ OK = 200
++FORBIDDEN = 403
+ NOT_FOUND = 404
+ 
+-_BODIES = {NOT_FOUND: b"Not Found"}
++_BODIES = {FORBIDDEN: b"Forbidden", NOT_FOUND: b"Not Found"}
+ 
+ 
+ def _reply(status):
+     return status, _BODIES[status]
+ 
+ 
++def _inside(real_root, real_path):
++    return os.path.commonpath([real_root, real_path]) == real_root
++
++
+ def serve(root, url_path):
+     """Return (status, body) for GET url_path against the folder root."""
+-    relative = unquote(url_path).removeprefix("/")
+-    path = os.path.join(root, relative)
++    relative = unquote(url_path).lstrip("/")  # always relative to root, never absolute
++    if "\0" in relative:
++        return _reply(NOT_FOUND)
++    # Resolve ".." and symlinks first: where the request really lands must be inside the real root.
++    real_root = os.path.realpath(root)
++    path = os.path.realpath(os.path.join(real_root, relative))
++    if not _inside(real_root, path):
++        return _reply(FORBIDDEN)
+     if os.path.isdir(path):
+-        path = os.path.join(path, INDEX_NAME)
++        path = os.path.realpath(os.path.join(path, INDEX_NAME))  # the index may itself be a link
++        if not _inside(real_root, path):
++            return _reply(FORBIDDEN)
+     if not os.path.isfile(path):
+         return _reply(NOT_FOUND)
+     with open(path, "rb") as f:
+diff --git a/tests/test_handler.py b/tests/test_handler.py
+index 9d526d3..cfa0644 100644
+--- a/tests/test_handler.py
++++ b/tests/test_handler.py
+@@ -1,3 +1,5 @@
++import os
++
+ import pytest
+ 
+ from staticsite.handler import serve
+@@ -43,3 +45,46 @@ def test_percent_encoded_names_are_decoded(site):
+ 
+ def test_root_can_be_a_string(site):
+     assert serve(str(site), "/css/site.css") == (200, b"body{}")
++
++
++@pytest.fixture
++def outside(tmp_path):
++    secret = tmp_path / "secret.txt"
++    secret.write_text("secret")
++    return secret
++
++
++@pytest.mark.parametrize(
++    "url", ["/../secret.txt", "/css/../../secret.txt", "/%2e%2e/secret.txt", "/%2e%2e%2fsecret.txt", "/..%2fsecret.txt"]
++)
++def test_dotdot_cannot_leave_the_root(site, outside, url):
++    assert serve(site, url) == (403, b"Forbidden")
++
++
++def test_absolute_paths_are_not_read(site, outside):
++    status, body = serve(site, "/" + str(outside))
++    assert status == 404 and body == b"Not Found"
++
++
++def test_a_folder_sharing_the_roots_name_as_a_prefix_is_outside(site, tmp_path):
++    other = tmp_path / "site-private"
++    other.mkdir()
++    (other / "secret.txt").write_text("secret")
++    assert serve(site, "/../site-private/secret.txt") == (403, b"Forbidden")
++
++
++def test_symlinks_pointing_outside_are_refused(site, outside):
++    os.symlink(outside, site / "leak.txt")
++    os.symlink(outside.parent, site / "leakdir")
++    assert serve(site, "/leak.txt") == (403, b"Forbidden")
++    assert serve(site, "/leakdir/secret.txt") == (403, b"Forbidden")
++
++
++def test_symlinks_inside_the_root_still_work(site):
++    os.symlink("css", site / "styles")
++    assert serve(site, "/styles/site.css") == (200, b"body{}")
++
++
++def test_backslash_is_just_a_character(site):
++    (site / "a\\b.txt").write_text("backslash")
++    assert serve(site, "/a%5Cb.txt") == (200, b"backslash")

@@ -1,0 +1,156 @@
+diff --git a/schedkit/calendar.py b/schedkit/calendar.py
+index e954420..8b1da86 100644
+--- a/schedkit/calendar.py
++++ b/schedkit/calendar.py
+@@ -41,4 +41,4 @@ class BusinessCalendar:
+             day += timedelta(days=step)
+             if self.is_business_day(day):
+                 left -= 1
+-        return from_local_naive(datetime.combine(day, wall.time()))
++        return from_local_naive(datetime.combine(day, wall.time().replace(fold=0)))
+diff --git a/schedkit/rules.py b/schedkit/rules.py
+index 8e2d362..ef32c73 100644
+--- a/schedkit/rules.py
++++ b/schedkit/rules.py
+@@ -8,7 +8,6 @@ import calendar as _calendar
+ import re
+ from dataclasses import dataclass, field
+ from datetime import date, datetime, time, timedelta
+-from functools import lru_cache
+ 
+ from schedkit.errors import RuleError, RuleSyntaxError
+ from schedkit.timeutil import ensure_aware, from_local_naive, to_local_naive
+@@ -57,13 +56,13 @@ class _AtTime(Rule):
+         raise NotImplementedError
+ 
+     def next_after(self, after: datetime) -> datetime:
+-        local_after = to_local_naive(ensure_aware(after))
+-        day = local_after.date()
++        after = ensure_aware(after)
++        day = to_local_naive(after).date()
+         for _ in range(MAX_SCAN_DAYS):
+             if self._matches(day) and day not in self.skipped:
+-                candidate = datetime.combine(day, self.at)
+-                if candidate > local_after:
+-                    return from_local_naive(candidate)
++                candidate = from_local_naive(datetime.combine(day, self.at))
++                if candidate > after:  # compare instants: wall-clock times repeat and skip when the clocks change
++                    return candidate
+             day += timedelta(days=1)
+         raise RuleError(f"{self.text!r} has no run in the next {MAX_SCAN_DAYS} days")
+ 
+@@ -138,9 +137,8 @@ def _parse_weekdays(text: str, rule: str) -> tuple[int, ...]:
+     return tuple(sorted(days))
+ 
+ 
+-@lru_cache(maxsize=512)
+ def parse_rule(text: str) -> Rule:
+-    """Parses a rule string (docs/rules.md). Parsing is cached, so a rule text is only read once."""
++    """Parses a rule string (docs/rules.md). Every call returns a new rule: rules are mutable (skip), so they are never shared."""
+     words = text.strip().lower().split()
+     if not words:
+         raise RuleSyntaxError("empty rule")
+diff --git a/schedkit/timeutil.py b/schedkit/timeutil.py
+index ecbbb48..3e95f36 100644
+--- a/schedkit/timeutil.py
++++ b/schedkit/timeutil.py
+@@ -39,8 +39,12 @@ def to_local_naive(moment: datetime) -> datetime:
+ 
+ 
+ def from_local_naive(wall: datetime) -> datetime:
+-    """The instant (aware, UTC) at which the wall clock on this machine shows `wall`."""
+-    return wall.astimezone(UTC)
++    """The instant (aware, UTC) at which the wall clock on this machine shows `wall`.
++
++    A wall-clock time that does not exist (the clocks jumped over it) is read with the offset from before the jump;
++    one that happens twice is the first of the two, unless `wall.fold` is 1. See docs/timezones.md.
++    """
++    return wall.replace(tzinfo=local_zone()).astimezone(UTC)
+ 
+ 
+ def utc_iso(moment: datetime) -> str:
+diff --git a/tests/test_zones.py b/tests/test_zones.py
+new file mode 100644
+index 0000000..b97ffc9
+--- /dev/null
++++ b/tests/test_zones.py
+@@ -0,0 +1,79 @@
++"""The same checks under zones that change their clocks, whatever zone the machine running the tests is in."""
++import time as systime
++from datetime import date, datetime, time, timedelta
++
++import pytest
++
++from schedkit.calendar import BusinessCalendar
++from schedkit.rules import Daily, parse_rule
++from schedkit.timeutil import from_local_naive, to_local_naive
++from tests.helpers import at
++
++# zone: (day the clocks go forward, a wall-clock time that does not exist that day,
++#        day the clocks go back, a wall-clock time that happens twice that day)
++ZONES = {
++    "America/New_York": (date(2025, 3, 9), time(2, 30), date(2025, 11, 2), time(1, 30)),
++    "Europe/Berlin": (date(2025, 3, 30), time(2, 30), date(2025, 10, 26), time(2, 30)),
++    "Australia/Sydney": (date(2025, 10, 5), time(2, 30), date(2025, 4, 6), time(2, 30)),
++    "Europe/London": (date(2025, 3, 30), time(1, 30), date(2025, 10, 26), time(1, 30)),
++}
++
++
++@pytest.fixture(params=sorted(ZONES))
++def zone(request, monkeypatch):
++    monkeypatch.setenv("TZ", request.param)
++    systime.tzset()
++    yield ZONES[request.param]
++    monkeypatch.undo()
++    systime.tzset()
++
++
++def noon_before(day: date):
++    eve = day - timedelta(days=1)
++    return at(eve.year, eve.month, eve.day, 12)
++
++
++def test_a_wall_clock_time_in_the_gap_is_read_with_the_offset_from_before_the_jump(zone):
++    day, gap, _, _ = zone
++    run = Daily("daily", at=gap).next_after(noon_before(day))
++    assert run == at(day.year, day.month, day.day, gap.hour, gap.minute)
++    assert to_local_naive(run).time() == gap.replace(hour=gap.hour + 1)  # the clocks show an hour later
++
++
++def test_a_time_that_happens_twice_runs_once_at_the_first(zone):
++    _, _, day, twice = zone
++    rule = Daily("daily", at=twice)
++    first = rule.next_after(noon_before(day))
++    assert first == at(day.year, day.month, day.day, twice.hour, twice.minute)
++    nxt = day + timedelta(days=1)
++    assert rule.next_after(first) == at(nxt.year, nxt.month, nxt.day, twice.hour, twice.minute)
++
++
++def test_next_after_inside_the_repeated_hour_is_later_than_its_argument(zone):
++    _, _, day, twice = zone
++    rule = Daily("daily", at=twice.replace(minute=15))
++    start = at(day.year, day.month, day.day, twice.hour, 0) - timedelta(hours=2)
++    for i in range(0, 8 * 4):
++        probe = start + timedelta(minutes=15 * i)
++        assert rule.next_after(probe) > probe, probe
++
++
++def test_from_local_naive_follows_fold(zone):
++    _, _, day, twice = zone
++    wall = datetime.combine(day, twice)
++    assert from_local_naive(wall.replace(fold=1)) - from_local_naive(wall) == timedelta(hours=1)
++
++
++def test_business_days_land_on_the_gap_day_at_the_requested_wall_time(zone):
++    day, gap, _, _ = zone
++    week = BusinessCalendar(weekend=frozenset())
++    before = day - timedelta(days=1)
++    assert week.add_business_days(at(before.year, before.month, before.day, gap.hour, gap.minute), 1) == at(day.year, day.month, day.day, gap.hour, gap.minute)
++
++
++def test_a_skipped_date_stays_with_the_rule_it_was_skipped_on():
++    one, two = parse_rule("daily 06:45"), parse_rule("daily 06:45")
++    one.skip(date(2025, 2, 11))
++    assert date(2025, 2, 11) not in two.skipped
++    assert two.next_after(at(2025, 2, 10, 7)) == at(2025, 2, 11, 6, 45)
++    assert one.next_after(at(2025, 2, 10, 7)) == at(2025, 2, 12, 6, 45)

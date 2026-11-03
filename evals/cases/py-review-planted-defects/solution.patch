@@ -1,0 +1,25 @@
+diff --git a/REVIEW.md b/REVIEW.md
+new file mode 100644
+index 0000000..fb1ec15
+--- /dev/null
++++ b/REVIEW.md
+@@ -0,0 +1,19 @@
++# Review of PR.diff (admin tools)
++
++Three defects, most serious first. Nothing else needs to block the merge.
++
++## 1. SQL injection in the member lookup: `app/members.py:16`
++
++`search_members` builds the query with an f-string: `LIKE '%{text}%'`. `text` is the `q` parameter of `GET /members/search`, so `q=zzz%' UNION SELECT id, email, name FROM members --` rewrites the query and returns whatever the caller asks for. Bind it instead: `WHERE name LIKE ?` with `(f"%{text}%",)`, as `books.find_books` already does.
++
++## 2. A refused bulk checkout leaves an open transaction: `app/loans.py:62` (loop at 60-68)
++
++`checkout_many` INSERTs one loan per book and commits once at the end. If a later book is already on loan, it raises `LoanError` at line 62 with the earlier INSERTs pending: no commit, no rollback. The server shares one connection across requests, so the next `conn.commit()` anywhere (the next checkout, a return) saves those partial loans. That breaks "all of them, or none" and the README rule that a refused request leaves the database as it was. Catch the error, call `conn.rollback()` and re-raise, or check every book before inserting any.
++
++## 3. Off-by-one at the grace-period boundary: `app/reports.py:29`
++
++The comment, the docstring and the commit message all say a loan is overdue when it is more than 3 days past due, but `>= GRACE_DAYS` also lists a loan exactly 3 days late. Use `> GRACE_DAYS`. The new test uses a loan 16 days late, so it cannot catch this; add cases at exactly 3 and 4 days.
++
++## Not problems
++
++`ORDER BY {column}` in `app/reports.py:18` is an f-string, but `column` can only be a value of `ORDER_COLUMNS` (default `l.due_on`), so it is not injectable. Single quotes in `reports.py`, the long line in `routes.py` and the double `_days_late` call are style only.

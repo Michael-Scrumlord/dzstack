@@ -1,0 +1,857 @@
+diff --git a/README.md b/README.md
+index 7930c4f..6fdd2b6 100644
+--- a/README.md
++++ b/README.md
+@@ -16,6 +16,7 @@ python -m pytest -q                 # the tests
+ | `staffdir/migrate.py`, `staffdir/migrations/` | the migration runner and the migrations; the rules are in `docs/migrations.md` |
+ | `staffdir/db.py` | opening the database |
+ | `staffdir/users.py`, `teams.py`, `audit.py` | the tables: reads and writes |
++| `staffdir/names.py` | reading a free-text name as a given and a family name (`docs/names.md`) |
+ | `staffdir/validation.py` | input checks |
+ | `staffdir/api.py` | `handle(conn, method, path, query, body)` returns `(status, body)` |
+ | `staffdir/exports.py`, `reports.py`, `notifications.py` | the CSV export, the A-Z index and counts, the messages |
+diff --git a/staffdir/api.py b/staffdir/api.py
+index 46a8b98..23508ce 100644
+--- a/staffdir/api.py
++++ b/staffdir/api.py
+@@ -88,7 +88,8 @@ def _create_user(conn, body, actor):
+     fields = clean_user_payload(body)
+     user = users.create(
+         conn,
+-        full_name=fields["full_name"],
++        given_name=fields["given_name"],
++        family_name=fields["family_name"],
+         email=fields["email"],
+         team_id=fields.get("team_id"),
+         phone=fields.get("phone"),
+diff --git a/staffdir/cli.py b/staffdir/cli.py
+index d95208a..b8f5bc4 100644
+--- a/staffdir/cli.py
++++ b/staffdir/cli.py
+@@ -3,7 +3,7 @@
+   migrate                              apply pending migrations
+   users list [--q Q] [--team ID] [--sort name|email|created]
+   users show ID
+-  users add --name "Full Name" --email ADDRESS [--team ID]
++  users add (--name "Full Name" | --given NAME [--family NAME]) --email ADDRESS [--team ID]
+   export users                         CSV on standard output
+   report index                         the A-Z index
+ """
+@@ -13,7 +13,7 @@ import argparse
+ import sys
+ 
+ from . import db, exports, migrate, reports, users
+-from .validation import ValidationError, clean_email, clean_full_name
++from .validation import ValidationError, clean_user_payload
+ 
+ 
+ def build_parser() -> argparse.ArgumentParser:
+@@ -30,7 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
+     show = user_cmd.add_parser("show")
+     show.add_argument("id", type=int)
+     add = user_cmd.add_parser("add")
+-    add.add_argument("--name", required=True)
++    add.add_argument("--name", help="a full name, read as described in docs/names.md")
++    add.add_argument("--given")
++    add.add_argument("--family")
+     add.add_argument("--email", required=True)
+     add.add_argument("--team", type=int)
+ 
+@@ -81,10 +83,13 @@ def _users(conn, args) -> int:
+         print(format_user(user))
+         print(f"      team {user['team_id'] or '-'}, status {user['status']}, phone {user['phone'] or '-'}")
+     elif args.action == "add":
++        given = {"full_name": args.name, "given_name": args.given, "family_name": args.family}
++        fields = clean_user_payload({"email": args.email, **{k: v for k, v in given.items() if v is not None}})
+         user = users.create(
+             conn,
+-            full_name=clean_full_name(args.name),
+-            email=clean_email(args.email),
++            given_name=fields["given_name"],
++            family_name=fields["family_name"],
++            email=fields["email"],
+             team_id=args.team,
+             actor="cli",
+         )
+diff --git a/staffdir/exports.py b/staffdir/exports.py
+index b58e0fd..f335b79 100644
+--- a/staffdir/exports.py
++++ b/staffdir/exports.py
+@@ -4,19 +4,24 @@ from __future__ import annotations
+ import csv
+ import io
+ 
+-COLUMNS = ["id", "full_name", "email", "team", "status"]
++from . import names
++
++COLUMNS = ["id", "given_name", "family_name", "full_name", "email", "team", "status"]
+ 
+ 
+ def users_csv(conn) -> str:
+     """Every user, one row each, ordered by name. Line endings are \\n."""
+     rows = conn.execute(
+-        "SELECT u.id AS id, u.full_name AS full_name, u.email AS email, t.name AS team, u.status AS status"
++        "SELECT u.id AS id, u.given_name AS given_name, u.family_name AS family_name, u.full_name AS full_name,"
++        " u.email AS email, t.name AS team, u.status AS status"
+         " FROM users u LEFT JOIN teams t ON t.id = u.team_id"
+-        " ORDER BY u.full_name COLLATE NOCASE, u.id"
++        " ORDER BY u.family_name COLLATE NOCASE, u.given_name COLLATE NOCASE, u.id"
+     )
+     out = io.StringIO()
+     writer = csv.writer(out, lineterminator="\n")
+     writer.writerow(COLUMNS)
+     for row in rows:
+-        writer.writerow(["" if row[column] is None else row[column] for column in COLUMNS])
++        given, family = names.resolve(row)
++        cells = {**dict(row), "given_name": given, "family_name": family, "full_name": names.display_name(given, family)}
++        writer.writerow(["" if cells[column] is None else cells[column] for column in COLUMNS])
+     return out.getvalue()
+diff --git a/staffdir/migrations/0007_split_user_names.py b/staffdir/migrations/0007_split_user_names.py
+new file mode 100644
+index 0000000..75392ea
+--- /dev/null
++++ b/staffdir/migrations/0007_split_user_names.py
+@@ -0,0 +1,52 @@
++"""Split users.full_name into given_name and family_name (the expand step: full_name stays).
++
++The reading rules are docs/names.md; split_name below is a copy of staffdir.names.split_name,
++because a migration does not import the application.
++"""
++
++PARTICLES = frozenset({"van", "von", "der", "den", "de", "del", "della", "di", "da", "du", "la", "le", "bin", "ibn"})
++
++
++def split_name(raw):
++    text = " ".join((raw or "").split())
++    if not text:
++        return "", ""
++    if "," in text:
++        left, _, right = text.partition(",")
++        left, right = left.strip(), right.strip()
++        if left and right:
++            return right, left
++        text = left or right
++        if not text:
++            return "", ""
++    words = text.split(" ")
++    if len(words) == 1:
++        return words[0], ""
++    start = len(words) - 1
++    while start > 1 and words[start - 1].casefold() in PARTICLES:
++        start -= 1
++    return " ".join(words[:start]), " ".join(words[start:])
++
++
++def up(conn):
++    columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
++    for column in ("given_name", "family_name"):
++        if column not in columns:
++            conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
++
++    # Only rows that were never split: a value corrected by hand since stays as it is.
++    todo = conn.execute("SELECT id, full_name FROM users WHERE given_name IS NULL AND family_name IS NULL").fetchall()
++    for user_id, full_name in todo:
++        given, family = split_name(full_name)
++        conn.execute("UPDATE users SET given_name = ?, family_name = ? WHERE id = ?", (given, family, user_id))
++
++    conn.execute("CREATE INDEX IF NOT EXISTS users_name ON users (family_name COLLATE NOCASE, given_name COLLATE NOCASE)")
++
++    # The roster view reads the new columns (and still carries the old one for rows not split yet).
++    conn.execute("DROP VIEW IF EXISTS team_roster")
++    conn.execute(
++        "CREATE VIEW team_roster AS"
++        " SELECT u.id AS user_id, u.team_id AS team_id, u.given_name AS given_name,"
++        " u.family_name AS family_name, u.full_name AS full_name, u.email AS email, u.status AS status"
++        " FROM users u WHERE u.team_id IS NOT NULL"
++    )
+diff --git a/staffdir/names.py b/staffdir/names.py
+new file mode 100644
+index 0000000..c354722
+--- /dev/null
++++ b/staffdir/names.py
+@@ -0,0 +1,47 @@
++"""Names: reading one string as a given and a family name, and putting them back together.
++
++The rules are in docs/names.md. The backfill migration carries its own copy of split_name
++(a migration must not import the application), so change both together.
++"""
++from __future__ import annotations
++
++PARTICLES = frozenset({"van", "von", "der", "den", "de", "del", "della", "di", "da", "du", "la", "le", "bin", "ibn"})
++
++
++def clean_part(value) -> str:
++    """One part of a name: trimmed, inner whitespace collapsed to single spaces."""
++    return " ".join((value or "").split())
++
++
++def split_name(raw) -> tuple[str, str]:
++    """(given, family) for a free-text name."""
++    text = clean_part(raw)
++    if not text:
++        return "", ""
++    if "," in text:
++        left, _, right = text.partition(",")
++        left, right = left.strip(), right.strip()
++        if left and right:
++            return right, left
++        text = left or right
++        if not text:
++            return "", ""
++    words = text.split(" ")
++    if len(words) == 1:
++        return words[0], ""
++    start = len(words) - 1
++    while start > 1 and words[start - 1].casefold() in PARTICLES:
++        start -= 1
++    return " ".join(words[:start]), " ".join(words[start:])
++
++
++def display_name(given, family) -> str:
++    return " ".join(part for part in (given or "", family or "") if part)
++
++
++def resolve(row) -> tuple[str, str]:
++    """(given, family) of a users row. A row the old release wrote has NULL in both: read its full_name."""
++    given, family = row["given_name"], row["family_name"]
++    if given is None and family is None:
++        return split_name(row["full_name"])
++    return given or "", family or ""
+diff --git a/staffdir/notifications.py b/staffdir/notifications.py
+index 165bb0d..50fb5a0 100644
+--- a/staffdir/notifications.py
++++ b/staffdir/notifications.py
+@@ -8,7 +8,7 @@ def welcome_message(conn, user_id: int) -> dict:
+     user = users.get(conn, user_id)
+     if user is None:
+         raise LookupError(f"no user {user_id}")
+-    first = (user["full_name"] or "").split(" ")[0] or "there"
++    first = user["given_name"] or user["family_name"] or "there"
+     body = (
+         f"Hi {first},\n\n"
+         "Your account in the staff directory is ready. Sign in with this email address "
+diff --git a/staffdir/reports.py b/staffdir/reports.py
+index 1bbd77a..d6ac1d9 100644
+--- a/staffdir/reports.py
++++ b/staffdir/reports.py
+@@ -5,14 +5,14 @@ from . import users
+ 
+ 
+ def index_by_initial(conn) -> dict[str, list[dict]]:
+-    """The A-Z index: users grouped by the first letter of their last name, in name order.
++    """The A-Z index: users grouped by the first letter of their family name (their given name when they have none), in name order.
+ 
+     Anything that does not start with a letter goes under "#".
+     """
+     groups: dict[str, list[dict]] = {}
+     for user in users.list_users(conn, sort="name", limit=1_000_000):
+-        words = (user["full_name"] or "").split()
+-        initial = words[-1][0].upper() if words else "#"
++        key = user["family_name"] or user["given_name"]
++        initial = key[0].upper() if key else "#"
+         if not initial.isalpha():
+             initial = "#"
+         groups.setdefault(initial, []).append(users.to_public(user))
+diff --git a/staffdir/teams.py b/staffdir/teams.py
+index 7b0d464..6307dd0 100644
+--- a/staffdir/teams.py
++++ b/staffdir/teams.py
+@@ -1,7 +1,7 @@
+ """Teams, their leads and their rosters."""
+ from __future__ import annotations
+ 
+-from . import audit
++from . import audit, names
+ 
+ 
+ def create_team(conn, name: str, lead_user_id: int | None = None, *, actor: str = "system") -> dict:
+@@ -31,22 +31,32 @@ def set_lead(conn, team_id: int, user_id: int | None, *, actor: str = "system")
+ def lead(conn, team_id: int) -> dict | None:
+     """The team lead as a small summary, or None when the team has none."""
+     row = conn.execute(
+-        "SELECT u.id AS id, u.full_name AS full_name, u.email AS email"
++        "SELECT u.id AS id, u.given_name AS given_name, u.family_name AS family_name,"
++        " u.full_name AS full_name, u.email AS email"
+         " FROM teams t JOIN users u ON u.id = t.lead_user_id WHERE t.id = ?",
+         (team_id,),
+     ).fetchone()
+-    return dict(row) if row else None
++    return _person(row) if row else None
++
++
++def _person(row) -> dict:
++    given, family = names.resolve(row)
++    person = {"id": row["id"], "given_name": given, "family_name": family, "full_name": names.display_name(given, family)}
++    person["email"] = row["email"]
++    if "status" in row.keys():
++        person["status"] = row["status"]
++    return person
+ 
+ 
+ def roster(conn, team_id: int, *, include_left: bool = False) -> list[dict]:
+     """Everybody on the team (people who have left only when asked), by name."""
+     status_filter = "" if include_left else " AND status <> 'left'"
+     rows = conn.execute(
+-        "SELECT user_id AS id, full_name, email, status FROM team_roster"
+-        f" WHERE team_id = ?{status_filter} ORDER BY full_name COLLATE NOCASE, user_id",
++        "SELECT user_id AS id, given_name, family_name, full_name, email, status FROM team_roster"
++        f" WHERE team_id = ?{status_filter} ORDER BY family_name COLLATE NOCASE, given_name COLLATE NOCASE, user_id",
+         (team_id,),
+     )
+-    return [dict(row) for row in rows]
++    return [_person(row) for row in rows]
+ 
+ 
+ def headcount(conn) -> list[dict]:
+diff --git a/staffdir/users.py b/staffdir/users.py
+index b832f50..5c30138 100644
+--- a/staffdir/users.py
++++ b/staffdir/users.py
+@@ -1,15 +1,16 @@
+ """The users table: reads and writes. Rows come back as plain dicts."""
+ from __future__ import annotations
+ 
+-from . import audit
++from . import audit, names
++from .validation import ValidationError
+ 
+-COLUMNS = "id, full_name, email, team_id, status, phone, created_at"
++COLUMNS = "id, given_name, family_name, full_name, email, team_id, status, phone, created_at"
+ SORTS = {
+-    "name": "full_name COLLATE NOCASE, id",
++    "name": "family_name COLLATE NOCASE, given_name COLLATE NOCASE, id",
+     "email": "email COLLATE NOCASE, id",
+     "created": "created_at, id",
+ }
+-UPDATABLE = ("full_name", "email", "team_id", "status", "phone")
++UPDATABLE = ("given_name", "family_name", "email", "team_id", "status", "phone")
+ 
+ 
+ def _escape_like(text: str) -> str:
+@@ -19,8 +20,11 @@ def _escape_like(text: str) -> str:
+ def _filters(q, team_id, status) -> tuple[str, list]:
+     clauses, params = [], []
+     if q:
+-        clauses.append("full_name LIKE ? ESCAPE '\\'")
+-        params.append(f"%{_escape_like(q)}%")
++        clauses.append(
++            "(given_name LIKE ? ESCAPE '\\' OR family_name LIKE ? ESCAPE '\\'"
++            " OR trim(given_name || ' ' || family_name) LIKE ? ESCAPE '\\')"
++        )
++        params.extend([f"%{_escape_like(q)}%"] * 3)
+     if team_id is not None:
+         clauses.append("team_id = ?")
+         params.append(team_id)
+@@ -30,14 +34,23 @@ def _filters(q, team_id, status) -> tuple[str, list]:
+     return (" WHERE " + " AND ".join(clauses)) if clauses else "", params
+ 
+ 
++def _load(row) -> dict:
++    """A users row as a dict. given_name and family_name are always strings (a row the old release
++    wrote is read from its full_name) and full_name is the display name."""
++    user = dict(row)
++    user["given_name"], user["family_name"] = names.resolve(row)
++    user["full_name"] = names.display_name(user["given_name"], user["family_name"])
++    return user
++
++
+ def get(conn, user_id: int) -> dict | None:
+     row = conn.execute(f"SELECT {COLUMNS} FROM users WHERE id = ?", (user_id,)).fetchone()
+-    return dict(row) if row else None
++    return _load(row) if row else None
+ 
+ 
+ def get_by_email(conn, email: str) -> dict | None:
+     row = conn.execute(f"SELECT {COLUMNS} FROM users WHERE email = ?", (email,)).fetchone()
+-    return dict(row) if row else None
++    return _load(row) if row else None
+ 
+ 
+ def list_users(conn, *, q=None, team_id=None, status=None, sort="name", limit=50, offset=0) -> list[dict]:
+@@ -48,7 +61,7 @@ def list_users(conn, *, q=None, team_id=None, status=None, sort="name", limit=50
+         f"SELECT {COLUMNS} FROM users{where} ORDER BY {SORTS[sort]} LIMIT ? OFFSET ?",
+         [*params, limit, offset],
+     )
+-    return [dict(row) for row in rows]
++    return [_load(row) for row in rows]
+ 
+ 
+ def count(conn, *, q=None, team_id=None, status=None) -> int:
+@@ -56,10 +69,11 @@ def count(conn, *, q=None, team_id=None, status=None) -> int:
+     return conn.execute(f"SELECT COUNT(*) FROM users{where}", params).fetchone()[0]
+ 
+ 
+-def create(conn, *, full_name: str, email: str, team_id=None, phone=None, actor: str = "system") -> dict:
++def create(conn, *, given_name: str, family_name: str = "", email: str, team_id=None, phone=None, actor: str = "system") -> dict:
++    # full_name is kept up to date for the release that still reads it
+     cursor = conn.execute(
+-        "INSERT INTO users (full_name, email, team_id, phone) VALUES (?, ?, ?, ?)",
+-        (full_name, email, team_id, phone),
++        "INSERT INTO users (given_name, family_name, full_name, email, team_id, phone) VALUES (?, ?, ?, ?, ?, ?)",
++        (given_name, family_name, names.display_name(given_name, family_name), email, team_id, phone),
+     )
+     conn.commit()
+     user = get(conn, cursor.lastrowid)
+@@ -73,6 +87,15 @@ def update(conn, user_id: int, *, actor: str = "system", **changes) -> dict | No
+         raise ValueError(f"cannot update {', '.join(sorted(unknown))}")
+     if not changes:
+         return get(conn, user_id)
++    if "given_name" in changes or "family_name" in changes:
++        current = get(conn, user_id)
++        if current is None:
++            return None
++        given = changes.get("given_name", current["given_name"])
++        family = changes.get("family_name", current["family_name"])
++        if not (given or family):
++            raise ValidationError("given_name", "a user needs at least one name")
++        changes = {**changes, "given_name": given, "family_name": family, "full_name": names.display_name(given, family)}
+     assignments = ", ".join(f"{column} = ?" for column in changes)
+     cursor = conn.execute(f"UPDATE users SET {assignments} WHERE id = ?", [*changes.values(), user_id])
+     conn.commit()
+@@ -98,6 +121,8 @@ def to_public(user: dict) -> dict:
+     """The shape of a user in API responses."""
+     return {
+         "id": user["id"],
++        "given_name": user["given_name"],
++        "family_name": user["family_name"],
+         "full_name": user["full_name"],
+         "email": user["email"],
+         "team_id": user["team_id"],
+diff --git a/staffdir/validation.py b/staffdir/validation.py
+index 209dc29..a6a80b0 100644
+--- a/staffdir/validation.py
++++ b/staffdir/validation.py
+@@ -3,11 +3,14 @@ from __future__ import annotations
+ 
+ import re
+ 
++from . import names
++
+ EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+ PHONE = re.compile(r"^\+?[0-9][0-9 ()-]{5,19}$")
+ STATUSES = ("active", "suspended", "left")
+ MAX_NAME_LENGTH = 120
+-USER_FIELDS = ("full_name", "email", "team_id", "status", "phone")
++NAME_FIELDS = ("full_name", "given_name", "family_name")
++USER_FIELDS = (*NAME_FIELDS, "email", "team_id", "status", "phone")
+ 
+ 
+ class ValidationError(ValueError):
+@@ -65,8 +68,33 @@ def clean_full_name(value) -> str:
+     return name
+ 
+ 
++def clean_name_part(field: str, value) -> str:
++    if not isinstance(value, str):
++        raise ValidationError(field, f"{field} must be a string")
++    part = names.clean_part(value)
++    if len(part) > MAX_NAME_LENGTH:
++        raise ValidationError(field, f"{field} is longer than {MAX_NAME_LENGTH} characters")
++    return part
++
++
++def clean_names(payload: dict, *, partial: bool) -> dict:
++    """The name fields of a payload as given_name/family_name (a full_name is read by the rules in docs/names.md)."""
++    has_parts = "given_name" in payload or "family_name" in payload
++    if "full_name" in payload and has_parts:
++        raise ValidationError("full_name", "give either full_name or given_name and family_name, not both")
++    if "full_name" in payload:
++        given, family = names.split_name(clean_full_name(payload["full_name"]))
++        return {"given_name": given, "family_name": family}
++    parts = {field: clean_name_part(field, payload[field]) for field in ("given_name", "family_name") if field in payload}
++    if not partial:
++        if not any(parts.values()):
++            raise ValidationError("given_name" if has_parts else "full_name", "a name is required")
++        parts.setdefault("given_name", "")
++        parts.setdefault("family_name", "")
++    return parts
++
++
+ _CLEANERS = {
+-    "full_name": clean_full_name,
+     "email": clean_email,
+     "team_id": clean_team_id,
+     "status": clean_status,
+@@ -81,13 +109,15 @@ def clean_user_payload(payload, *, partial: bool = False) -> dict:
+     unknown = sorted(set(payload) - set(USER_FIELDS))
+     if unknown:
+         raise ValidationError("payload", f"unknown fields: {', '.join(unknown)}")
+-    required = () if partial else ("full_name", "email")
+-    for field in required:
+-        if field not in payload:
+-            raise ValidationError(field, f"{field} is required")
++    if not partial and "email" not in payload:
++        raise ValidationError("email", "email is required")
+     if partial and not payload:
+         raise ValidationError("payload", "nothing to update")
+-    return {field: _CLEANERS[field](value) for field, value in payload.items()}
++    cleaned = clean_names(payload, partial=partial)
++    for field, value in payload.items():
++        if field not in NAME_FIELDS:
++            cleaned[field] = _CLEANERS[field](value)
++    return cleaned
+ 
+ 
+ def clean_page(value, default: int, *, name: str, maximum: int | None = None) -> int:
+diff --git a/tests/conftest.py b/tests/conftest.py
+index 2a8abe8..b43a41b 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -19,9 +19,9 @@ def conn():
+ @pytest.fixture
+ def people(conn):
+     """Three users on two teams; Grace leads Platform."""
+-    ada = users.create(conn, full_name="Ada Lovelace", email="ada@example.com")
+-    grace = users.create(conn, full_name="Grace Hopper", email="grace@example.com")
+-    alan = users.create(conn, full_name="Alan Turing", email="alan@example.com")
++    ada = users.create(conn, given_name="Ada", family_name="Lovelace", email="ada@example.com")
++    grace = users.create(conn, given_name="Grace", family_name="Hopper", email="grace@example.com")
++    alan = users.create(conn, given_name="Alan", family_name="Turing", email="alan@example.com")
+     platform = teams.create_team(conn, "Platform", lead_user_id=grace["id"])
+     research = teams.create_team(conn, "Research")
+     users.update(conn, ada["id"], team_id=platform["id"])
+diff --git a/tests/test_api.py b/tests/test_api.py
+index a10f7fb..dbda018 100644
+--- a/tests/test_api.py
++++ b/tests/test_api.py
+@@ -43,13 +43,13 @@ def test_patch_and_delete(conn):
+ def test_listing_pages_filters_and_sorts(conn, people):
+     status, body = call(conn, "GET", "/users", {"per_page": "2"})
+     assert status == 200 and body["total"] == 3
+-    assert [u["full_name"] for u in body["users"]] == ["Ada Lovelace", "Alan Turing"]
++    assert [u["full_name"] for u in body["users"]] == ["Grace Hopper", "Ada Lovelace"]
+     _, body = call(conn, "GET", "/users", {"per_page": "2", "page": "2"})
+-    assert [u["full_name"] for u in body["users"]] == ["Grace Hopper"]
++    assert [u["full_name"] for u in body["users"]] == ["Alan Turing"]
+     _, body = call(conn, "GET", "/users", {"q": "turing"})
+     assert [u["email"] for u in body["users"]] == ["alan@example.com"]
+     _, body = call(conn, "GET", "/users", {"team_id": str(people["platform"])})
+-    assert [u["full_name"] for u in body["users"]] == ["Ada Lovelace", "Grace Hopper"]
++    assert [u["full_name"] for u in body["users"]] == ["Grace Hopper", "Ada Lovelace"]
+     assert call(conn, "GET", "/users", {"sort": "bogus"})[0] == 400
+     assert call(conn, "GET", "/users", {"per_page": "1000"})[0] == 400
+ 
+@@ -58,7 +58,7 @@ def test_team_and_roster(conn, people):
+     status, body = call(conn, "GET", f"/teams/{people['platform']}")
+     assert status == 200 and body["team"]["lead"]["full_name"] == "Grace Hopper"
+     status, body = call(conn, "GET", f"/teams/{people['platform']}/roster")
+-    assert [m["full_name"] for m in body["members"]] == ["Ada Lovelace", "Grace Hopper"]
++    assert [m["full_name"] for m in body["members"]] == ["Grace Hopper", "Ada Lovelace"]
+     assert call(conn, "GET", "/teams/999/roster")[0] == 404
+     assert call(conn, "GET", "/teams/x")[0] == 404
+ 
+@@ -82,3 +82,29 @@ def test_directory_index_and_audit(conn, people):
+     status, body = call(conn, "GET", "/audit", {"limit": "3"})
+     assert status == 200 and len(body["entries"]) == 3
+     assert call(conn, "GET", "/nothing/here")[0] == 404
++
++
++def test_a_user_can_be_created_from_parts_or_from_a_full_name(conn):
++    _, body = call(conn, "POST", "/users", body={"given_name": " Mary  Jane ", "family_name": "Watson", "email": "m@x.io"})
++    user = body["user"]
++    assert (user["given_name"], user["family_name"], user["full_name"]) == ("Mary Jane", "Watson", "Mary Jane Watson")
++    _, body = call(conn, "POST", "/users", body={"full_name": "Watson, Peter", "email": "p@x.io"})
++    assert (body["user"]["given_name"], body["user"]["family_name"]) == ("Peter", "Watson")
++    stored = conn.execute("SELECT full_name FROM users WHERE email = 'p@x.io'").fetchone()[0]
++    assert stored == "Peter Watson"
++
++
++def test_patching_one_part_leaves_the_other(conn):
++    _, body = call(conn, "POST", "/users", body={"full_name": "Ada Lovelace", "email": "ada@example.com"})
++    uid = body["user"]["id"]
++    _, body = call(conn, "PATCH", f"/users/{uid}", body={"given_name": "Augusta Ada"})
++    assert (body["user"]["given_name"], body["user"]["family_name"]) == ("Augusta Ada", "Lovelace")
++    assert body["user"]["full_name"] == "Augusta Ada Lovelace"
++
++
++def test_mixing_full_name_with_parts_or_leaving_no_name_is_a_400(conn):
++    mixed = {"full_name": "Ada Lovelace", "given_name": "Ada", "email": "ada@example.com"}
++    assert call(conn, "POST", "/users", body=mixed)[0] == 400
++    _, body = call(conn, "POST", "/users", body={"full_name": "Ada Lovelace", "email": "ada@example.com"})
++    uid = body["user"]["id"]
++    assert call(conn, "PATCH", f"/users/{uid}", body={"given_name": "", "family_name": ""})[0] == 400
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 11f8f5b..2932c47 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -18,7 +18,7 @@ def test_migrate_then_add_list_show(capsys, tmp_path):
+     run(capsys, db_path, "users", "add", "--name", "Grace Hopper", "--email", "grace@example.com")
+ 
+     _, out, _ = run(capsys, db_path, "users", "list")
+-    assert out.splitlines() == ["   1  Ada Lovelace  <ada@example.com>", "   2  Grace Hopper  <grace@example.com>"]
++    assert out.splitlines() == ["   2  Grace Hopper  <grace@example.com>", "   1  Ada Lovelace  <ada@example.com>"]
+     _, out, _ = run(capsys, db_path, "users", "list", "--q", "hop")
+     assert out.splitlines() == ["   2  Grace Hopper  <grace@example.com>"]
+     _, out, _ = run(capsys, db_path, "users", "show", "1")
+@@ -39,6 +39,9 @@ def test_export_and_index(capsys, tmp_path):
+     run(capsys, db_path, "migrate")
+     run(capsys, db_path, "users", "add", "--name", "Ada Lovelace", "--email", "ada@example.com")
+     _, out, _ = run(capsys, db_path, "export", "users")
+-    assert out.splitlines() == ["id,full_name,email,team,status", "1,Ada Lovelace,ada@example.com,,active"]
++    assert out.splitlines() == [
++        "id,given_name,family_name,full_name,email,team,status",
++        "1,Ada,Lovelace,Ada Lovelace,ada@example.com,,active",
++    ]
+     _, out, _ = run(capsys, db_path, "report", "index")
+     assert out == "L  Ada Lovelace\n"
+diff --git a/tests/test_exports.py b/tests/test_exports.py
+index 80223cb..c62773f 100644
+--- a/tests/test_exports.py
++++ b/tests/test_exports.py
+@@ -4,18 +4,18 @@ import io
+ from staffdir import exports
+ 
+ 
+-def test_users_csv_has_one_row_per_user_in_name_order(conn, people):
++def test_users_csv_has_one_row_per_user_in_family_name_order(conn, people):
+     text = exports.users_csv(conn)
+-    assert text.splitlines()[0] == "id,full_name,email,team,status"
++    assert text.splitlines()[0] == "id,given_name,family_name,full_name,email,team,status"
+     rows = list(csv.DictReader(io.StringIO(text)))
+-    assert [r["full_name"] for r in rows] == ["Ada Lovelace", "Alan Turing", "Grace Hopper"]
+-    assert rows[0]["team"] == "Platform" and rows[1]["team"] == "Research"
++    assert [r["full_name"] for r in rows] == ["Grace Hopper", "Ada Lovelace", "Alan Turing"]
++    assert rows[0]["team"] == "Platform" and rows[2]["team"] == "Research"
+     assert all(r["status"] == "active" for r in rows)
+ 
+ 
+ def test_users_without_a_team_have_an_empty_team_cell(conn):
+     from staffdir import users
+ 
+-    users.create(conn, full_name="Solo Dev", email="solo@example.com")
++    users.create(conn, given_name="Solo", family_name="Dev", email="solo@example.com")
+     rows = list(csv.DictReader(io.StringIO(exports.users_csv(conn))))
+     assert rows[0]["team"] == ""
+diff --git a/tests/test_names.py b/tests/test_names.py
+new file mode 100644
+index 0000000..17141d2
+--- /dev/null
++++ b/tests/test_names.py
+@@ -0,0 +1,47 @@
++import pytest
++
++from staffdir import names
++
++CASES = [
++    ("Ada Lovelace", ("Ada", "Lovelace")),
++    ("Cher", ("Cher", "")),
++    ("Mary Jane Watson", ("Mary Jane", "Watson")),
++    ("  Mary   Jane \t Watson\n", ("Mary Jane", "Watson")),
++    ("Mary Jane Watson", ("Mary Jane", "Watson")),
++    ("Watson, Mary Jane", ("Mary Jane", "Watson")),
++    ("Watson,Mary", ("Mary", "Watson")),
++    ("van der Berg, Vincent", ("Vincent", "van der Berg")),
++    ("Ludwig van Beethoven", ("Ludwig", "van Beethoven")),
++    ("Vincent Van Der Berg", ("Vincent", "Van Der Berg")),
++    ("Anna Maria de la Cruz", ("Anna Maria", "de la Cruz")),
++    ("van Halen", ("van", "Halen")),
++    ("Jan de", ("Jan", "de")),
++    ("Watson,", ("Watson", "")),
++    (",Mary", ("Mary", "")),
++    (None, ("", "")),
++    ("", ("", "")),
++    ("   ", ("", "")),
++    ("José Álvarez", ("José", "Álvarez")),
++    ("李　小龍", ("李", "小龍")),
++    ("李小龍", ("李小龍", "")),
++    ("José Alvarez", ("José", "Alvarez")),
++]
++
++
++@pytest.mark.parametrize("text,expected", CASES)
++def test_split_name(text, expected):
++    assert names.split_name(text) == expected
++
++
++def test_display_name_leaves_out_an_empty_part():
++    assert names.display_name("Mary Jane", "Watson") == "Mary Jane Watson"
++    assert names.display_name("Cher", "") == "Cher"
++    assert names.display_name("", "Watson") == "Watson"
++    assert names.display_name(None, None) == ""
++
++
++def test_resolve_prefers_the_columns_and_falls_back_to_full_name():
++    row = {"given_name": "Zed", "family_name": "Quill", "full_name": "Ada Lovelace"}
++    assert names.resolve(row) == ("Zed", "Quill")
++    assert names.resolve({"given_name": None, "family_name": None, "full_name": "Watson, Mary"}) == ("Mary", "Watson")
++    assert names.resolve({"given_name": "Cher", "family_name": None, "full_name": "x"}) == ("Cher", "")
+diff --git a/tests/test_notifications.py b/tests/test_notifications.py
+index a6639c2..2d205b5 100644
+--- a/tests/test_notifications.py
++++ b/tests/test_notifications.py
+@@ -23,5 +23,5 @@ def test_the_team_lead_hears_when_somebody_leaves(conn, people):
+ 
+ def test_no_notice_without_a_team_or_a_lead(conn, people):
+     assert notifications.deactivation_notice(conn, people["alan"]) is None
+-    solo = users.create(conn, full_name="Solo Dev", email="solo@example.com")
++    solo = users.create(conn, given_name="Solo", family_name="Dev", email="solo@example.com")
+     assert notifications.deactivation_notice(conn, solo["id"]) is None
+diff --git a/tests/test_reports.py b/tests/test_reports.py
+index 45b12ea..43448d3 100644
+--- a/tests/test_reports.py
++++ b/tests/test_reports.py
+@@ -8,8 +8,8 @@ def test_index_groups_by_last_name_initial(conn, people):
+ 
+ 
+ def test_non_letters_go_under_hash_and_sort_last(conn):
+-    users.create(conn, full_name="Zed 9", email="z@x.io")
+-    users.create(conn, full_name="Amy Adams", email="a@x.io")
++    users.create(conn, given_name="Zed", family_name="9", email="z@x.io")
++    users.create(conn, given_name="Amy", family_name="Adams", email="a@x.io")
+     assert list(reports.index_by_initial(conn)) == ["A", "#"]
+ 
+ 
+diff --git a/tests/test_split_names_migration.py b/tests/test_split_names_migration.py
+new file mode 100644
+index 0000000..d28833b
+--- /dev/null
++++ b/tests/test_split_names_migration.py
+@@ -0,0 +1,80 @@
++"""0007_split_user_names against a database at the schema of 0006."""
++import shutil
++
++import pytest
++
++from staffdir import db, migrate, users
++
++ROWS = [
++    ("Ada Lovelace", "ada@example.com"),
++    ("  Watson,  Mary Jane ", "mary@example.com"),
++    ("Cher", "cher@example.com"),
++    ("", "empty@example.com"),
++    (None, "null@example.com"),
++]
++
++
++@pytest.fixture
++def old_db(tmp_path):
++    older = tmp_path / "older"
++    older.mkdir()
++    for migration in migrate.discover():
++        if migration.version < "0007":
++            shutil.copy(migration.path, older / migration.path.name)
++    conn = db.connect(str(tmp_path / "old.db"))
++    migrate.run(conn, older)
++    for full_name, email in ROWS:
++        conn.execute("INSERT INTO users (full_name, email) VALUES (?, ?)", (full_name, email))
++    conn.commit()
++    return conn
++
++
++def parts(conn):
++    rows = conn.execute("SELECT email, given_name, family_name, full_name FROM users ORDER BY id")
++    return [tuple(row) for row in rows]
++
++
++def test_backfill_fills_every_row_and_keeps_full_name(old_db):
++    assert migrate.run(old_db) == ["0007"]
++    assert parts(old_db) == [
++        ("ada@example.com", "Ada", "Lovelace", "Ada Lovelace"),
++        ("mary@example.com", "Mary Jane", "Watson", "  Watson,  Mary Jane "),
++        ("cher@example.com", "Cher", "", "Cher"),
++        ("empty@example.com", "", "", ""),
++        ("null@example.com", "", "", None),
++    ]
++
++
++def test_running_it_again_changes_nothing_and_keeps_corrections(old_db):
++    migrate.run(old_db)
++    old_db.execute("UPDATE users SET given_name = 'Augusta Ada' WHERE email = 'ada@example.com'")
++    old_db.commit()
++    before = parts(old_db)
++    old_db.execute("DELETE FROM schema_migrations WHERE version = '0007'")
++    old_db.commit()
++    assert migrate.run(old_db) == ["0007"]
++    assert parts(old_db) == before
++
++
++def test_rows_the_old_release_wrote_are_filled_by_the_next_run_and_read_correctly_before(old_db):
++    migrate.run(old_db)
++    old_db.execute("INSERT INTO users (full_name, email) VALUES ('Grace Brewster Hopper', 'grace@example.com')")
++    old_db.commit()
++    grace = users.get_by_email(old_db, "grace@example.com")
++    assert (grace["given_name"], grace["family_name"]) == ("Grace Brewster", "Hopper")
++    assert old_db.execute("SELECT given_name FROM users WHERE email = 'grace@example.com'").fetchone()[0] is None
++    old_db.execute("DELETE FROM schema_migrations WHERE version = '0007'")
++    old_db.commit()
++    migrate.run(old_db)
++    row = old_db.execute("SELECT given_name, family_name FROM users WHERE email = 'grace@example.com'").fetchone()
++    assert tuple(row) == ("Grace Brewster", "Hopper")
++
++
++def test_the_roster_view_reads_the_new_columns(old_db):
++    old_db.execute("INSERT INTO teams (name) VALUES ('Platform')")
++    old_db.execute("UPDATE users SET team_id = 1 WHERE email = 'ada@example.com'")
++    old_db.commit()
++    migrate.run(old_db)
++    old_db.execute("UPDATE users SET given_name = 'Zed' WHERE email = 'ada@example.com'")
++    row = old_db.execute("SELECT given_name, family_name FROM team_roster").fetchone()
++    assert tuple(row) == ("Zed", "Lovelace")
+diff --git a/tests/test_users.py b/tests/test_users.py
+index 63c88e4..821c4fd 100644
+--- a/tests/test_users.py
++++ b/tests/test_users.py
+@@ -2,7 +2,7 @@ from staffdir import audit, users
+ 
+ 
+ def test_create_and_get(conn):
+-    user = users.create(conn, full_name="Ada Lovelace", email="ada@example.com", phone="+44 20 7946 0000")
++    user = users.create(conn, given_name="Ada", family_name="Lovelace", email="ada@example.com", phone="+44 20 7946 0000")
+     assert user["id"] == 1
+     assert users.get(conn, 1)["full_name"] == "Ada Lovelace"
+     assert users.get(conn, 99) is None
+@@ -11,35 +11,36 @@ def test_create_and_get(conn):
+ 
+ 
+ def test_create_is_audited(conn):
+-    user = users.create(conn, full_name="Ada Lovelace", email="ada@example.com", actor="tester")
++    user = users.create(conn, given_name="Ada", family_name="Lovelace", email="ada@example.com", actor="tester")
+     entries = audit.for_subject(conn, user["id"])
+     assert [(e["actor"], e["action"], e["detail"]) for e in entries] == [("tester", "user.created", "Ada Lovelace")]
+ 
+ 
+-def test_list_is_sorted_by_name_ignoring_case(conn):
++def test_list_is_sorted_by_family_name_then_given_name_ignoring_case(conn):
+     for name, email in [("bob Brown", "b@x.io"), ("Alice Zed", "a@x.io"), ("Carol Adams", "c@x.io")]:
+-        users.create(conn, full_name=name, email=email)
+-    assert [u["full_name"] for u in users.list_users(conn)] == ["Alice Zed", "bob Brown", "Carol Adams"]
++        given, _, family = name.partition(" ")
++        users.create(conn, given_name=given, family_name=family, email=email)
++    assert [u["full_name"] for u in users.list_users(conn)] == ["Carol Adams", "bob Brown", "Alice Zed"]
+     assert [u["email"] for u in users.list_users(conn, sort="email")] == ["a@x.io", "b@x.io", "c@x.io"]
+ 
+ 
+ def test_search_matches_part_of_the_name_ignoring_case(conn):
+-    users.create(conn, full_name="Ada Lovelace", email="ada@example.com")
+-    users.create(conn, full_name="Grace Hopper", email="grace@example.com")
++    users.create(conn, given_name="Ada", family_name="Lovelace", email="ada@example.com")
++    users.create(conn, given_name="Grace", family_name="Hopper", email="grace@example.com")
+     assert [u["email"] for u in users.list_users(conn, q="LOVE")] == ["ada@example.com"]
+     assert users.count(conn, q="o") == 2
+     assert users.list_users(conn, q="100%") == []
+ 
+ 
+ def test_search_treats_like_wildcards_literally(conn):
+-    users.create(conn, full_name="50% Off", email="a@x.io")
+-    users.create(conn, full_name="Anything", email="b@x.io")
++    users.create(conn, given_name="50%", family_name="Off", email="a@x.io")
++    users.create(conn, given_name="", family_name="Anything", email="b@x.io")
+     assert [u["email"] for u in users.list_users(conn, q="%")] == ["a@x.io"]
+     assert [u["email"] for u in users.list_users(conn, q="_")] == []
+ 
+ 
+ def test_update_changes_only_what_it_is_given(conn):
+-    user = users.create(conn, full_name="Ada Lovelace", email="ada@example.com")
++    user = users.create(conn, given_name="Ada", family_name="Lovelace", email="ada@example.com")
+     updated = users.update(conn, user["id"], status="suspended")
+     assert updated["status"] == "suspended" and updated["full_name"] == "Ada Lovelace"
+     assert users.update(conn, 99, status="left") is None
+@@ -53,7 +54,7 @@ def test_delete_clears_team_leads(conn, people):
+ 
+ 
+ def test_email_changes_are_audited_by_the_database(conn):
+-    user = users.create(conn, full_name="Ada Lovelace", email="ada@example.com")
++    user = users.create(conn, given_name="Ada", family_name="Lovelace", email="ada@example.com")
+     users.update(conn, user["id"], email="ada@lovelace.org")
+     actions = [e["action"] for e in audit.for_subject(conn, user["id"])]
+     assert "user.email_changed" in actions

@@ -1,0 +1,7 @@
+{
+  "title": "A slow nightly job: merging 200,000 records takes over an hour",
+  "kind": "perf",
+  "tags": ["python", "perf"],
+  "max_turns": 40,
+  "timeout_s": 900
+}

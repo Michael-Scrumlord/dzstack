@@ -1,0 +1,7 @@
+{
+  "title": "A feature: soft delete for projects, with restore and an admin listing",
+  "kind": "feature",
+  "tags": ["typescript", "feature"],
+  "max_turns": 50,
+  "timeout_s": 1200
+}

@@ -1,0 +1,7 @@
+{
+  "title": "A refactor: three copy-pasted form validators that must keep behaving exactly alike",
+  "kind": "refactor",
+  "tags": ["typescript", "refactor"],
+  "max_turns": 40,
+  "timeout_s": 900
+}

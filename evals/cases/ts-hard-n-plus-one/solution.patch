@@ -1,0 +1,309 @@
+diff --git a/src/lib/like.ts b/src/lib/like.ts
+new file mode 100644
+index 0000000..0ffc679
+--- /dev/null
++++ b/src/lib/like.ts
+@@ -0,0 +1,4 @@
++/** Escape user text for `ilike`, so a typed %, _ or \ matches itself instead of acting as a wildcard. */
++export function escapeLike(text: string): string {
++  return text.replace(/[\\%_]/g, "\\$&");
++}
+diff --git a/src/repos/projects.ts b/src/repos/projects.ts
+index ee7028c..1ee01e5 100644
+--- a/src/repos/projects.ts
++++ b/src/repos/projects.ts
+@@ -1,5 +1,9 @@
+-import type { Db } from "../db/types.ts";
++import type { Db, Filter, OrderBy } from "../db/types.ts";
+ import type { ProjectRow } from "../db/schema.ts";
++import { isOrgAdmin } from "../auth/session.ts";
++import type { Viewer } from "../auth/session.ts";
++import { escapeLike } from "../lib/like.ts";
++import type { ListQuery } from "../lib/params.ts";
+ 
+ export async function listByOrg(db: Db, orgId: number): Promise<ProjectRow[]> {
+   return db.select("projects", { where: { org_id: orgId }, orderBy: [{ column: "id" }] });
+@@ -22,3 +26,54 @@ export async function insert(db: Db, row: Omit<ProjectRow, "id">): Promise<Proje
+ export async function patch(db: Db, id: number, fields: Partial<Omit<ProjectRow, "id">>): Promise<void> {
+   await db.update("projects", { id }, fields);
+ }
++
++/** The same rule as canSeeProject in services/permissions.ts, as a filter the database applies. */
++function visibleTo(viewer: Viewer): Filter {
++  const belongsTo: Filter = {
++    id: { inSelect: { table: "project_members", column: "project_id", where: { user_id: viewer.userId } } },
++  };
++  if (isOrgAdmin(viewer)) return { org_id: viewer.orgId };
++  if (viewer.role === "member") return { org_id: viewer.orgId, $or: [{ visibility: "org" }, belongsTo] };
++  return { org_id: viewer.orgId, ...belongsTo };
++}
++
++function listFilter(viewer: Viewer, query: ListQuery): Filter {
++  const all: Filter[] = [visibleTo(viewer)];
++  if (!query.includeArchived) all.push({ archived: false });
++  if (query.q) {
++    const pattern = `%${escapeLike(query.q)}%`;
++    all.push({ $or: [{ name: { ilike: pattern } }, { key: { ilike: pattern } }] });
++  }
++  if (query.tag) {
++    const liveTagsWithLabel: Filter = { archived: false, label: { ilike: escapeLike(query.tag) } };
++    all.push({
++      id: {
++        inSelect: {
++          table: "project_tags",
++          column: "project_id",
++          where: { tag_id: { inSelect: { table: "tags", column: "id", where: liveTagsWithLabel } } },
++        },
++      },
++    });
++  }
++  return { $and: all };
++}
++
++/** Pinned first; ties fall back to id ascending in both directions. */
++function listOrder(query: ListQuery): OrderBy[] {
++  const by: OrderBy =
++    query.sort === "name"
++      ? { column: "name", dir: query.order, nocase: true }
++      : { column: query.sort === "created" ? "created_at" : "updated_at", dir: query.order };
++  return [{ column: "pinned", dir: "desc" }, by, { column: "id" }];
++}
++
++/** One page of the projects the viewer may list, and how many match in all. One query. */
++export async function listPage(db: Db, viewer: Viewer, query: ListQuery): Promise<{ rows: ProjectRow[]; total: number }> {
++  return db.selectPage("projects", {
++    where: listFilter(viewer, query),
++    orderBy: listOrder(query),
++    limit: query.perPage,
++    offset: (query.page - 1) * query.perPage,
++  });
++}
+diff --git a/src/repos/users.ts b/src/repos/users.ts
+index 9bcb299..8707d91 100644
+--- a/src/repos/users.ts
++++ b/src/repos/users.ts
+@@ -1,20 +1,21 @@
+ import type { Db } from "../db/types.ts";
+ import type { UserRow } from "../db/schema.ts";
+ 
++/** The database's in-list limit (see src/db/README.md). */
++const IN_LIST_LIMIT = 200;
++
+ export async function getById(db: Db, id: number): Promise<UserRow | undefined> {
+   const [user] = await db.select("users", { where: { id }, limit: 1 });
+   return user;
+ }
+ 
+-/**
+- * Several users in one query. `ids` must stay under the driver's in-list limit
+- * (MAX_IN_LIST in src/db/fake.ts); the callers so far pass a few dozen.
+- */
++/** Several users in as few queries as the in-list limit allows. */
+ export async function getByIds(db: Db, ids: readonly number[]): Promise<Map<number, UserRow>> {
+   const unique = [...new Set(ids)];
+-  if (unique.length === 0) return new Map();
+-  const rows = await db.select("users", { where: { id: { in: unique } } });
+-  return new Map(rows.map((u) => [u.id, u]));
++  const chunks: number[][] = [];
++  for (let i = 0; i < unique.length; i += IN_LIST_LIMIT) chunks.push(unique.slice(i, i + IN_LIST_LIMIT));
++  const found = await Promise.all(chunks.map((chunk) => db.select("users", { where: { id: { in: chunk } } })));
++  return new Map(found.flat().map((u) => [u.id, u]));
+ }
+ 
+ export const isActive = (user: UserRow | undefined): user is UserRow => user !== undefined && user.deactivated_at === null;
+diff --git a/src/services/project-items.ts b/src/services/project-items.ts
+new file mode 100644
+index 0000000..b5c0c2f
+--- /dev/null
++++ b/src/services/project-items.ts
+@@ -0,0 +1,77 @@
++import type { Db } from "../db/types.ts";
++import type { ProjectRow } from "../db/schema.ts";
++import { NOISE_KIND } from "../repos/activity.ts";
++import type { ActivityView } from "../repos/activity.ts";
++import { sortMembers } from "../repos/members.ts";
++import type { MemberView } from "../repos/members.ts";
++import { sortTags, toView } from "../repos/tags.ts";
++import type { TagView } from "../repos/tags.ts";
++import * as users from "../repos/users.ts";
++import { toListItem } from "./project-item.ts";
++import type { ProjectListItem } from "./project-item.ts";
++
++function groupBy<T>(rows: readonly T[], key: (row: T) => number): Map<number, T[]> {
++  const groups = new Map<number, T[]>();
++  for (const row of rows) {
++    const k = key(row);
++    const group = groups.get(k);
++    if (group) group.push(row);
++    else groups.set(k, [row]);
++  }
++  return groups;
++}
++
++/**
++ * List items for many projects at once: a fixed number of queries however many projects
++ * there are. Same rules as the per-project helpers in repos/ (active members only, live
++ * tags only, newest non-view event), applied to everything at once.
++ */
++export async function buildItems(db: Db, projects: readonly ProjectRow[]): Promise<ProjectListItem[]> {
++  if (projects.length === 0) return [];
++  const ids = projects.map((p) => p.id);
++
++  const [memberRows, links, tagRows, latest] = await Promise.all([
++    db.select("project_members", { where: { project_id: { in: ids } } }),
++    db.select("project_tags", { where: { project_id: { in: ids } } }),
++    db.select("tags", {
++      where: { id: { inSelect: { table: "project_tags", column: "tag_id", where: { project_id: { in: ids } } } } },
++    }),
++    db.select("activity", {
++      where: { project_id: { in: ids }, kind: { ne: NOISE_KIND } },
++      orderBy: [
++        { column: "at", dir: "desc" },
++        { column: "id", dir: "desc" },
++      ],
++      distinctOn: "project_id",
++    }),
++  ]);
++
++  const people = await users.getByIds(db, [
++    ...memberRows.map((m) => m.user_id),
++    ...latest.flatMap((a) => (a.actor_id === null ? [] : [a.actor_id])),
++  ]);
++  const tagsById = new Map(tagRows.map((t) => [t.id, t]));
++  const membersOf = groupBy(memberRows, (m) => m.project_id);
++  const linksOf = groupBy(links, (l) => l.project_id);
++  const latestOf = new Map(latest.map((a) => [a.project_id, a]));
++
++  return projects.map((project) => {
++    const members: MemberView[] = [];
++    for (const row of membersOf.get(project.id) ?? []) {
++      const user = people.get(row.user_id);
++      if (users.isActive(user)) members.push({ id: user.id, name: user.name, role: row.role });
++    }
++    const tags: TagView[] = [];
++    for (const link of linksOf.get(project.id) ?? []) {
++      const tag = tagsById.get(link.tag_id);
++      if (tag && !tag.archived) tags.push(toView(tag));
++    }
++    const event = latestOf.get(project.id);
++    let activity: ActivityView | null = null;
++    if (event) {
++      const actor = event.actor_id === null ? "System" : (people.get(event.actor_id)?.name ?? "Unknown");
++      activity = { kind: event.kind, at: event.at, actor };
++    }
++    return toListItem(project, sortMembers(members), sortTags(tags), activity);
++  });
++}
+diff --git a/src/services/project-list.ts b/src/services/project-list.ts
+index e301fb7..b58759f 100644
+--- a/src/services/project-list.ts
++++ b/src/services/project-list.ts
+@@ -1,62 +1,21 @@
+ import type { Db } from "../db/types.ts";
+ import type { ProjectRow } from "../db/schema.ts";
+ import type { Viewer } from "../auth/session.ts";
+-import { cmp, cmpNoCase } from "../lib/compare.ts";
+-import { paginate } from "../lib/paginate.ts";
++import { pageMeta } from "../lib/paginate.ts";
+ import type { PageMeta } from "../lib/paginate.ts";
+ import type { ListQuery } from "../lib/params.ts";
+-import * as activity from "../repos/activity.ts";
+-import * as members from "../repos/members.ts";
+ import * as projects from "../repos/projects.ts";
+-import * as tags from "../repos/tags.ts";
+-import { canSeeProject } from "./permissions.ts";
+-import { toListItem } from "./project-item.ts";
++import { buildItems } from "./project-items.ts";
+ import type { ProjectListItem } from "./project-item.ts";
+ 
+ export type ProjectListResponse = { items: ProjectListItem[] } & PageMeta;
+ 
+ export async function buildItem(db: Db, project: ProjectRow): Promise<ProjectListItem> {
+-  const projectMembers = await members.listActive(db, project.id);
+-  const projectTags = await tags.listForProject(db, project.id);
+-  const latest = await activity.latest(db, project.id);
+-  return toListItem(project, projectMembers, projectTags, latest);
+-}
+-
+-function matches(item: ProjectListItem, query: ListQuery): boolean {
+-  if (query.q) {
+-    const needle = query.q.toLowerCase();
+-    if (!item.name.toLowerCase().includes(needle) && !item.key.toLowerCase().includes(needle)) return false;
+-  }
+-  if (query.tag) {
+-    const wanted = query.tag.toLowerCase();
+-    if (!item.tags.some((t) => t.label.toLowerCase() === wanted)) return false;
+-  }
+-  return true;
+-}
+-
+-/** Pinned projects always come first. Ties fall back to id, ascending, in both directions. */
+-function comparator(query: ListQuery): (a: ProjectListItem, b: ProjectListItem) => number {
+-  const dir = query.order === "desc" ? -1 : 1;
+-  return (a, b) => {
+-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+-    const c =
+-      query.sort === "name"
+-        ? cmpNoCase(a.name, b.name)
+-        : query.sort === "created"
+-          ? cmp(a.createdAt, b.createdAt)
+-          : cmp(a.updatedAt, b.updatedAt);
+-    return c * dir || a.id - b.id;
+-  };
++  const [item] = await buildItems(db, [project]);
++  return item;
+ }
+ 
+ export async function listProjects(db: Db, viewer: Viewer, query: ListQuery): Promise<ProjectListResponse> {
+-  const all = await projects.listByOrg(db, viewer.orgId);
+-  const items: ProjectListItem[] = [];
+-  for (const project of all) {
+-    if (project.archived && !query.includeArchived) continue;
+-    if (!(await canSeeProject(db, viewer, project))) continue;
+-    items.push(await buildItem(db, project));
+-  }
+-  const shown = items.filter((item) => matches(item, query)).sort(comparator(query));
+-  return paginate(shown, query.page, query.perPage);
++  const { rows, total } = await projects.listPage(db, viewer, query);
++  return { items: await buildItems(db, rows), ...pageMeta(total, query.page, query.perPage) };
+ }
+diff --git a/test/projects-list-queries.test.ts b/test/projects-list-queries.test.ts
+new file mode 100644
+index 0000000..c26fb19
+--- /dev/null
++++ b/test/projects-list-queries.test.ts
+@@ -0,0 +1,34 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { createApp } from "../src/api/app.ts";
++import { client } from "../testkit/client.ts";
++import { generateTeam } from "../testkit/generate.ts";
++
++// docs/performance.md: at most 12 queries per list request, whatever the page size or team size,
++// and a page of 50 costs under 150 ms simulated.
++const MAX_QUERIES = 12;
++const MAX_MS = 150;
++
++for (const token of ["tok-owner", "tok-member", "tok-guest"]) {
++  for (const perPage of ["5", "50", "100"]) {
++    test(`GET /projects as ${token}, ${perPage} per page, stays within the query budget`, async () => {
++      const db = generateTeam({ projects: 400 });
++      const api = client(createApp(db), token);
++      for (const page of ["1", "2"]) {
++        db.resetStats();
++        const res = await api.get("/projects", { page, perPage });
++        assert.equal(res.status, 200);
++        assert.ok(db.stats.queries <= MAX_QUERIES, `${db.stats.queries} queries\n${db.log.slice(0, 20).join("\n")}`);
++        assert.ok(db.stats.simulatedMs < MAX_MS, `${db.stats.simulatedMs} ms simulated`);
++      }
++    });
++  }
++}
++
++test("a filtered, searched, sorted page stays within the budget too", async () => {
++  const db = generateTeam({ projects: 400 });
++  const api = client(createApp(db), "tok-member");
++  db.resetStats();
++  await api.get("/projects", { q: "a", tag: "atlas-0", sort: "updated", order: "desc", includeArchived: "true" });
++  assert.ok(db.stats.queries <= MAX_QUERIES, db.log.join("\n"));
++});

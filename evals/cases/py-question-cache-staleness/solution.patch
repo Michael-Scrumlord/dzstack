@@ -1,0 +1,17 @@
+diff --git a/ANSWER.md b/ANSWER.md
+new file mode 100644
+index 0000000..b1c52a9
+--- /dev/null
++++ b/ANSWER.md
+@@ -0,0 +1,11 @@
++# Caching in catalog, and where a stale price can appear
++
++**Read path.** `CatalogService.get_product` (`catalog/service.py:10-18`) asks the in-process `TTLCache` first (line 12). On a miss it reads the row from SQLite and caches the `Product` (line 17). Entries live 300 seconds (`PRODUCT_TTL_SECONDS`, line 2). Unknown products and `list_active` are not cached.
++
++**Write path.** `discontinue` (`service.py:36-42`) commits, then invalidates: the safe order. `update_price` (`service.py:23-34`) does the reverse. It invalidates the entry at `service.py:25`, then runs the transaction at line 26, which commits only when the `with` block exits (`store.py:54`).
++
++**Yes, a user can see a stale price.** Between the invalidate and the commit, SQLite still holds the old price and the cache is empty. A concurrent `get_product` misses, reads the old row and puts it back into the cache (`service.py:17`). The commit then lands, nothing invalidates again, and every reader gets the old price until the entry expires, up to 5 minutes later. The window is as long as the transaction (price lookup, update, audit insert, commit), so it is short but real under concurrent traffic.
++
++**Not a problem.** One process means one cache, so no cross-instance drift. `Product` is frozen, so callers cannot mutate cached values.
++
++**Fix.** Invalidate after the commit: move `self._cache.invalidate(product_id)` below the `with` block in `update_price`, as `discontinue` does. A reader that loaded the old row just before the commit can still re-cache it. To close that too, keep a version (or `updated_at`) on the row, and let the cache accept a loaded value only if its version is newer than the last one invalidated.

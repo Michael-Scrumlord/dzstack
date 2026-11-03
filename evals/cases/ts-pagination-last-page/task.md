@@ -1,0 +1,1 @@
+Users report that when the number of results isn't an exact multiple of the page size, the last page never shows up: with 45 orders and 20 per page they can reach orders 1-40 but not 41-45. Please fix it. Tests run with `npm test`.

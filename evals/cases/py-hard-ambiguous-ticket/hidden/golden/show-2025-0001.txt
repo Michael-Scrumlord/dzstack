@@ -1,0 +1,13 @@
+INVOICE 2025-0001                                      Issued 2025-11-03
+Fish & Chips <Ltd> (US)
+
+SKU        Description                     Qty   Unit price       Amount
+------------------------------------------------------------------------
+A&B        <script>alert(1)</script>     0.333      $300.01       $99.90
+------------------------------------------------------------------------
+                                    Subtotal                      $99.90
+                                    Tax                            $7.24
+                                    TOTAL                        $107.14
+
+Payment due within 30 days of the invoice date.
+Notes: Thanks <b>so</b> much & see you

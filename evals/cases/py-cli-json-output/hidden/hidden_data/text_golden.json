@@ -1,0 +1,12 @@
+{
+ "basic.csv|": "Category   Count     Total\n---------  -----  --------\nRent           1  1,200.00\nGroceries      3    168.70\nTransport      2     82.20\nDining         1     48.30\n---------  -----  --------\nTotal          7  1,499.20\n",
+ "basic.csv|--month 2024-03 --sort name": "Category   Count     Total\n---------  -----  --------\nDining         1     48.30\nGroceries      3    168.70\nRent           1  1,200.00\nTransport      1     64.00\n---------  -----  --------\nTotal          6  1,481.00\n",
+ "basic.csv|--month 2030-01": "No expenses found.\n",
+ "quoted.csv|": "Category     Count         Total\n-----------  -----  ------------\nTravel           2  1,234,367.89\nDining, Out      3         86.70\nCafé & Bar       1         12.35\n-----------  -----  ------------\nTotal            6  1,234,466.94\n",
+ "refunds.csv|": "Category   Count   Total\n---------  -----  ------\nGroceries      3   40.30\nGadgets        2    0.00\nReturns        2  -85.50\n---------  -----  ------\nTotal          7  -45.20\n",
+ "ties.csv|": "Category  Count  Total\n--------  -----  -----\nCherry        1  10.00\nZucchini      1  10.00\napple         1  10.00\nbanana        1  10.00\nAvocado       1   5.00\n--------  -----  -----\nTotal         5  45.00\n",
+ "ties.csv|--sort name": "Category  Count  Total\n--------  -----  -----\napple         1  10.00\nAvocado       1   5.00\nbanana        1  10.00\nCherry        1  10.00\nZucchini      1  10.00\n--------  -----  -----\nTotal         5  45.00\n",
+ "ties.csv|--month 2024-01": "Category  Count  Total\n--------  -----  -----\nCherry        1  10.00\napple         1  10.00\nbanana        1  10.00\nAvocado       1   5.00\n--------  -----  -----\nTotal         4  35.00\n",
+ "empty.csv|": "No expenses found.\n",
+ "header_only.csv|": "No expenses found.\n"
+}

@@ -1,0 +1,65 @@
+diff --git a/recsync/merge.py b/recsync/merge.py
+index b5763b5..6aa8e74 100644
+--- a/recsync/merge.py
++++ b/recsync/merge.py
+@@ -1,6 +1,7 @@
+ """Merge two lists of customer records into one, one record per customer id."""
+ from __future__ import annotations
+ 
++from itertools import chain
+ from typing import Iterable
+ 
+ 
+@@ -27,24 +28,16 @@ def _combine(kept: dict, newer: dict) -> dict:
+     return combined
+ 
+ 
+-def _find(records: list[dict], record_id) -> int:
+-    """Position of the record in `records` with this id, or -1."""
+-    for i, record in enumerate(records):
+-        if normalize_id(record["id"]) == normalize_id(record_id):
+-            return i
+-    return -1
+-
+-
+ def merge_records(base: Iterable[dict], incoming: Iterable[dict]) -> list[dict]:
+     """Merge `base` and `incoming` into one list with one record per id.
+ 
+     See the README for the rules (ordering, which record wins, how ties are broken).
++    Runs in linear time: records are kept in a dict keyed by normalized id, and a dict
++    keeps the position of a key's first insertion when its value is replaced.
+     """
+-    merged: list[dict] = []
+-    for record in [*base, *incoming]:
+-        i = _find(merged, record["id"])
+-        if i < 0:
+-            merged.append(dict(record))
+-        else:
+-            merged[i] = _combine(merged[i], record)
+-    return merged
++    merged: dict[str, dict] = {}
++    for record in chain(base, incoming):
++        key = normalize_id(record["id"])
++        kept = merged.get(key)
++        merged[key] = dict(record) if kept is None else _combine(kept, record)
++    return list(merged.values())
+diff --git a/tests/test_scale.py b/tests/test_scale.py
+index 20052c2..b9ea5f3 100644
+--- a/tests/test_scale.py
++++ b/tests/test_scale.py
+@@ -8,3 +8,15 @@ def test_a_few_thousand_records():
+     out = merge_records(base, incoming)
+     assert len(out) == 1800
+     assert len({r["id"].casefold() for r in out}) == 1800
++
++
++def test_forty_thousand_records_take_well_under_a_second():
++    import time
++
++    ids = [f"C-{i:06d}" for i in range(36_000)]
++    base = [{"id": ids[i % 36_000], "updated_at": "2026-01-01T00:00:00Z"} for i in range(24_000)]
++    incoming = [{"id": ids[(i * 7) % 36_000], "updated_at": "2026-01-02T00:00:00Z"} for i in range(16_000)]
++    start = time.perf_counter()
++    out = merge_records(base, incoming)
++    assert time.perf_counter() - start < 1.0
++    assert len(out) == len({r["id"] for r in out})

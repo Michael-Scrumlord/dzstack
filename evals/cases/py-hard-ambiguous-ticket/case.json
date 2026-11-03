@@ -1,0 +1,8 @@
+{
+  "title": "Add discounts to invoices (the ticket is one line; the docs settle most of it, not all)",
+  "kind": "feature",
+  "tags": ["hard", "python", "feature"],
+  "max_turns": 120,
+  "timeout_s": 2400,
+  "judge_files": ["NOTES.md"]
+}

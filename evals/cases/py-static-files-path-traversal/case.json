@@ -1,0 +1,7 @@
+{
+  "title": "A security report: the static file handler serves files outside its folder",
+  "kind": "security",
+  "tags": ["python", "security"],
+  "max_turns": 40,
+  "timeout_s": 900
+}

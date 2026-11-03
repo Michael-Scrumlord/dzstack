@@ -1,0 +1,7 @@
+{
+  "title": "A flaky CI: the scheduling library's suite fails now and then, with different tests each time",
+  "kind": "debugging",
+  "tags": ["hard", "python", "debugging"],
+  "max_turns": 120,
+  "timeout_s": 2400
+}

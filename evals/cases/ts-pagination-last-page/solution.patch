@@ -1,0 +1,18 @@
+--- a/src/paginate.ts
++++ b/src/paginate.ts
+@@ -12,3 +12,3 @@ export function paginate<T>(all: readonly T[], page: number, perPage: number): P
+   if (!Number.isInteger(perPage) || perPage < 1) throw new RangeError(`perPage must be a positive integer, got ${perPage}`);
+-  const totalPages = Math.floor(all.length / perPage);
++  const totalPages = Math.ceil(all.length / perPage);
+   const start = (page - 1) * perPage;
+--- a/test/paginate.test.ts
++++ b/test/paginate.test.ts
+@@ -13,2 +13,8 @@ test("splits an exact multiple into full pages", () => {
+ 
++test("the last partial page is reachable", () => {
++  const p = paginate(range(45), 3, 20);
++  assert.deepEqual(p.items, [41, 42, 43, 44, 45]);
++  assert.equal(p.hasNext, false);
++});
++
+ test("rejects page 0", () => {

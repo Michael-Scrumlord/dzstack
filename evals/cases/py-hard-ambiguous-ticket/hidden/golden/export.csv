@@ -1,0 +1,5 @@
+number,issued,customer,currency,subtotal,tax,total
+2025-0001,2025-11-03,Fish & Chips <Ltd>,USD,99.90,7.24,107.14
+2025-0002,2025-12-15,Acme GmbH,USD,86.50,11.94,98.44
+2026-0001,2026-01-20,Tie Breakers,USD,4.52,0.69,5.21
+2026-0002,2026-02-27,Brightside Ltd,GBP,940.03,144.50,1084.53

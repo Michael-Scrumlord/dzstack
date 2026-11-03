@@ -1,0 +1,64 @@
+diff --git a/jobrunner/config.py b/jobrunner/config.py
+index 89bdfed..25245e4 100644
+--- a/jobrunner/config.py
++++ b/jobrunner/config.py
+@@ -32,13 +32,14 @@ class Job:
+ 
+ 
+ def _first(raw: dict, defaults: dict, key: str):
+-    """The job's own value, else the one in `defaults`, else the built-in value."""
+-    value = raw.get(key)
+-    if not value:
+-        value = defaults.get(key)
+-    if not value:
+-        value = BUILTIN[key]
+-    return value
++    """The job's own value, else the one in `defaults`, else the built-in value.
++
++    Only a missing key or null counts as "not set": 0, false, [] and "" are real values.
++    """
++    for source in (raw, defaults):
++        if source.get(key) is not None:
++            return source[key]
++    return BUILTIN[key]
+ 
+ 
+ def _check_number(value, name: str, key: str, whole: bool = False) -> None:
+@@ -59,8 +60,8 @@ def resolve_job(name: str, raw: dict, defaults: dict) -> Job:
+     if not isinstance(command, str) or not command.strip():
+         raise ConfigError(f"job {name!r}: command is required")
+ 
+-    retries = raw.get("retries") or defaults.get("retries") or BUILTIN["retries"]
+-    timeout = raw.get("timeout") or defaults.get("timeout") or BUILTIN["timeout"]
++    retries = _first(raw, defaults, "retries")
++    timeout = _first(raw, defaults, "timeout")
+     retry_delay = _first(raw, defaults, "retry_delay")
+     enabled = _first(raw, defaults, "enabled")
+     notify = _first(raw, defaults, "notify")
+diff --git a/tests/test_config.py b/tests/test_config.py
+index 878ed04..e7b83af 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -78,3 +78,22 @@ def test_bad_files(tmp_path):
+ 
+ def test_built_in_table_matches_the_readme():
+     assert set(BUILTIN) == {"retries", "timeout", "retry_delay", "enabled", "notify", "log_file"}
++
++
++def test_zero_and_empty_values_are_used_as_written(tmp_path):
++    job = one(tmp_path, {"retries": 0, "timeout": 0, "retry_delay": 0, "enabled": False, "notify": [], "log_file": ""},
++              {"retries": 2, "timeout": 600, "retry_delay": 9, "enabled": True, "notify": ["x@example.com"]})
++    assert (job.retries, job.timeout, job.retry_delay) == (0, 0, 0)
++    assert (job.enabled, job.notify, job.log_file) == (False, [], None)
++
++
++def test_zero_in_defaults_applies_to_jobs_that_do_not_set_it(tmp_path):
++    job = one(tmp_path, {"retries": None}, {"retries": 0, "timeout": 0})
++    assert (job.retries, job.timeout) == (0, 0)
++
++
++def test_falsy_values_of_the_wrong_type_are_still_errors(tmp_path):
++    with pytest.raises(ConfigError):
++        one(tmp_path, {"enabled": 0})
++    with pytest.raises(ConfigError):
++        one(tmp_path, {"retries": False})

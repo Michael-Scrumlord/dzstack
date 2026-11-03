@@ -46,6 +46,32 @@ Activate the core engineering workflow in any session:
 
 ---
 
+## Measured performance
+
+dzstack comes with an eval suite in [`evals/`](evals/README.md): 20 realistic coding tasks, 8 of them hard. Each runs in a fresh container and is graded by hidden checks the agent never sees. It compares no pack, dzstack and pstack on Claude Code, Codex, the Antigravity CLI and OpenCode, local models included, and you can run it yourself. Every result so far is in [evals/RESULTS.md](evals/RESULTS.md).
+
+Claude Code with Sonnet, 20 tasks, 3 runs each (2026-11-03):
+
+| | Pass rate | Mean score | Cost per task | Model turns |
+|---|---|---|---|---|
+| No pack | 85% | 0.86 | $0.114 | 5.8 |
+| pstack (Claude Code port) | 87% | 0.90 | $0.167 | 6.7 |
+| dzstack, previous version | 88% | 0.92 | $0.197 | 7.7 |
+| **dzstack, this version** | **88%** | **0.94** | **$0.146** | 6.7 |
+
+Compared task by task, with 95% intervals:
+- **Against no pack:** score +0.079 [+0.031, +0.145], better on 11 tasks and worse on 3, for 28% more cost per task.
+- **Against pstack:** score +0.034 [+0.005, +0.070], and $0.020 cheaper per task.
+- **Against the previous dzstack:** score +0.021 [-0.001, +0.047], not a clear gain, and 26% cheaper.
+
+What to expect:
+- **Where it helps:** hard tasks and the details a quick fix misses. This version kept the status code a project documents while fixing a security hole (3 of 3 runs; pstack 1 of 3), shipped a speed fix with a test that catches the slowdown coming back (the only setup that did), and shrank code in refactors.
+- **What it costs:** about 30% more than no pack on Sonnet, from more context and one more turn per task. Costs are list-price equivalents; on a subscription they come out of usage.
+- **Small models:** on Gemini 3.8 Flash at medium effort (Antigravity CLI, 40 runs per version), this version scores about the same as the previous one, +0.016 [-0.005, +0.042], passes slightly fewer runs (85% against 90%) and makes 20% fewer tool calls. At low effort, no pack, dzstack and pstack scored the same. On small models, expect neither a gain nor harm.
+- **Where it is weaker:** a concurrency race (1 of 3 runs, where pstack solved 2 of 3) and a data migration that no setup solved reliably.
+
+---
+
 ## System Architecture
 
 ### 1. Core Engine & Router

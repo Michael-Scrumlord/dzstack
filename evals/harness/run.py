@@ -199,7 +199,7 @@ def run_agent(agent, arm, case, model, effort, extra, work, art, tmp: Path):
     mount_args, cli_args = agent.mounts(arm["dir"])
     prompt = prefix_for(arm, agent.name) + case["task"]
     cmd = agent.command(prompt, model, case, effort, extra) + cli_args
-    args = ["--name", name, "-w", "/work", "-v", f"{work}:/work", "-v", f"{out}:/out", *auth_args, *mount_args]
+    args = ["--name", name, "--add-host", "host.docker.internal:host-gateway", "-w", "/work", "-v", f"{work}:/work", "-v", f"{out}:/out", *auth_args, *mount_args]
     env = {**{k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY")},
            **auth_env}
     t0 = time.time()
@@ -307,12 +307,14 @@ def cmd_selftest(a):
     sys.exit(1 if bad else 0)
 
 
-def cache_key(agent, arm, case, model, effort, extra, i):
+def cache_key(agent, arm, case, model, effort, extra, i, judge="sonnet"):
     prefix = prefix_for(arm, agent.name)
     if agent.name == "claude" and not effort and not extra:  # the original key, so earlier Claude results stay valid
         parts = [arm["key"], prefix, case["hash"], model, CC_VERSION, i]
     else:
         parts = [agent.name, agent.version, agent.revision, arm["key"], prefix, case["hash"], model, effort, list(extra), i]
+    if judge == "none" and (case["dir"] / "rubric.md").exists():
+        parts.append("no-judge")  # appended only here, so every judged key stays as it was
     return hashlib.sha256(json.dumps(parts).encode()).hexdigest()[:20]
 
 
@@ -328,6 +330,8 @@ def cmd_run(a):
     extra = a.agent_arg or []
     if not agent.available():
         sys.exit(f"{agent.name}: no credentials (run.py agents; evals/README.md, 'Sign in')")
+    if sys.platform == "linux" and os.getuid() != 1000:
+        sys.exit(f"run as user id 1000, the containers' user (yours is {os.getuid()}); evals/README.md, 'Use it'")
     jobs_n = min(a.jobs, agent.max_jobs() or a.jobs)
     arms = load_arms([n for n in a.arms.split(",") if n] if a.arms else [], a.arm or [])
     cases = load_cases(a.case, a.tag, a.skip or ())
@@ -351,7 +355,7 @@ def cmd_run(a):
 
     def one(job):
         arm, case, i = job
-        key = cache_key(agent, arm, case, model, a.effort, extra, i)
+        key = cache_key(agent, arm, case, model, a.effort, extra, i, a.judge_model)
         if key in done and not a.force:
             rec = dict(done[key], cached=True)
         else:
@@ -370,7 +374,7 @@ def cmd_run(a):
                         changes = measure_changes(work, meta)
                         checks = run_checks(case, work, orig, meta)
                         judge_cost = 0
-                        if (case["dir"] / "rubric.md").exists():
+                        if (case["dir"] / "rubric.md").exists() and a.judge_model != "none":
                             jc, judge_cost = run_judge(case, a.judge_model, final, work, meta)
                             checks += jc
                             if any(c.get("infra") for c in jc):
@@ -392,7 +396,7 @@ def cmd_run(a):
             rec = {"key": key, "arm": arm["id"], "arm_key": arm["key"], "prefix": prefix_for(arm, agent.name),
                    "case": case["name"], "case_hash": case["hash"], "agent": agent.name,
                    "agent_version": agent.version, "model": model or "cli-default", "effort": a.effort, "run": i,
-                   "claude_code": CC_VERSION, "judge_cost_usd": judge_cost, **res, **changes,
+                   "claude_code": CC_VERSION, "judge": a.judge_model, "judge_cost_usd": judge_cost, **res, **changes,
                    **score(checks, res["finished"]), "checks": [{k: c[k] for k in ("name", "pass", "required")} for c in checks]}
             with lock:
                 spent[0] += (rec.get("cost_usd") or 0) + judge_cost
@@ -495,7 +499,7 @@ def main():
     r.add_argument("--model", help="the agent's model name (default: sonnet for claude; the CLI's own default otherwise)")
     r.add_argument("--effort", help="reasoning effort, passed to the agent's own flag")
     r.add_argument("--agent-arg", action="append", help="an extra argument for the agent CLI (repeatable)")
-    r.add_argument("--judge-model", default="sonnet")
+    r.add_argument("--judge-model", default="sonnet", help="Claude model for rubric cases; none: script checks only, no Claude needed")
     r.add_argument("--runs", type=int, default=2)
     r.add_argument("-j", "--jobs", type=int, default=3)
     r.add_argument("--max-usd", type=float, help="stop starting runs once the list-price cost reaches this")

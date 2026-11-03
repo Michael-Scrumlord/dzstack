@@ -20,9 +20,9 @@ Realistic coding tasks with hidden checks, run against several **arms** (no skil
 | `opencode` | OpenCode, `opencode run` | `provider/model` from your config | `opencode.json` with the provider: any OpenAI-compatible endpoint, such as Ollama, LM Studio or llama.cpp's server |
 
 - **Credentials.** Make each file mode 600. `run.py agents` says which agents are ready. A sign-in that the CLI refreshes (Codex's `auth.json`, a `.gemini/` folder) is copied into each run and copied back, so those agents run one at a time.
-- **Rubric grading.** Cases with a rubric are graded by Claude whatever agent ran them, so a Claude token is needed for those.
+- **Rubric grading.** Four cases also have a rubric, graded by Claude whatever agent ran them, so those need a Claude token. Without one, pass `--judge-model none`: those cases are then scored on their script checks only, and cached apart from judged runs. Rubric checks never decide pass or fail, so pass rates stay comparable; scores on those four cases do not.
 - **Extra flags.** `--effort` maps to each CLI's own reasoning-effort flag. `--agent-arg` passes anything else, repeatable. For example, Codex on a local model: `--agent codex --agent-arg=--oss --model <name>`.
-- **Local models.** The container must reach the endpoint, and the model needs tool calling and a context of 32k or more, because the agent CLIs' own instructions take 10-20k tokens. A 4-8B model on a 6 GB GPU runs the harness but rarely finishes these tasks. A 30B coding model needs about 24 GB.
+- **Local models.** The container must reach the endpoint: a server on the same machine is `http://host.docker.internal:<port>/v1` (the harness maps that name on Linux too), and it must listen on an address Docker can reach, not only 127.0.0.1 on Linux. The model needs tool calling and a context of 32k or more, because the agent CLIs' own instructions take 10-20k tokens. Small models run the harness, but finishing multi-step tasks is the hard part for them, which is what the suite measures.
 - **Counts across agents.** Tokens are counted the way each CLI reports them. Cost comes only from Claude Code and OpenCode. "Turns" counts model turns in Claude Code and tool calls elsewhere, so compare turns only within one agent.
 
 ## Arms
@@ -33,10 +33,12 @@ Realistic coding tasks with hidden checks, run against several **arms** (no skil
 - `git+<url>@<commit>:<subdir>`;
 - `dir:<path>`.
 
-## Use it (in the dev container)
+## Use it
+
+You need Docker, Python 3.10 or later and git, on Linux or macOS. Run from a git clone of this repository: arms such as `git:HEAD` read its history. On Linux, run as user id 1000 (`id -u`), the containers' user, so both sides can write the workspace; Docker Desktop on macOS and the first user in WSL2 are fine. Building the image downloads a Node base image and the four agent CLIs, so behind a company proxy Docker needs the proxy settings.
 
 ```bash
-cd ~/dzstack-evals                       # a clone or rsync of this repository
+git clone <this repo> dzstack && cd dzstack
 python3 evals/harness/run.py build       # the image, once per Claude Code version
 python3 evals/harness/run.py selftest    # every case fails on its fixture and passes with its solution
 python3 evals/harness/run.py run --tag quick --model haiku --runs 2 --max-usd 5
@@ -46,6 +48,28 @@ python3 evals/harness/run.py run --agent codex --tag quick --runs 2     # the sa
 python3 evals/harness/run.py report evals/results/<claude-run> evals/results/<codex-run>   # side by side
 python3 evals/harness/run.py report evals/results/<run>             # tables again
 ```
+
+A local model through OpenCode, with no Claude account: put an `opencode.json` like this in `~/.config/agent-evals/` (llama.cpp's `llama-server`, LM Studio and Ollama all serve this API), then run with `--judge-model none`.
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "http://host.docker.internal:8080/v1" },
+      "models": { "my-model": { "name": "my-model", "limit": { "context": 131072, "output": 16384 } } }
+    }
+  }
+}
+```
+
+```bash
+python3 evals/harness/run.py run --agent opencode --model local/my-model --judge-model none --tag quick --runs 1 -j 1
+python3 evals/harness/run.py run --agent opencode --model local/my-model --judge-model none --runs 2 -j 1   # all 20 cases
+```
+
+`-j 1` because one local server usually serves one request at a time. Start with `--tag quick` to see that the model finishes tasks at all before spending hours on the full suite.
 
 - **Sign in.** See Agents above. A Claude subscription token can also stay in the older `~/.config/claude-eval/oauth-token`. The harness passes credentials to each container through the environment or a private copy, and never prints them. It also drops `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` from the run's environment, so a run never bills a key you didn't put in the credentials folder.
 - **Results.** Each run writes `evals/results/<timestamp>/`, which is git-ignored. It holds one folder per run (transcript, diff, final message, checks) and `results.jsonl`.

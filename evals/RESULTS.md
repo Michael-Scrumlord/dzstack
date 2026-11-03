@@ -2,6 +2,22 @@
 
 Each comparison below says what ran. The numbers come from `run.py report`. A difference counts only when its 95% bootstrap interval excludes zero.
 
+## 2026-11-03: the improve stack against main on a small model (Antigravity CLI, Gemini 3.8 Flash medium, 20 cases, 2 runs each)
+
+`main` is dzstack at e044000, `stack` is `improve/4-perf-guard`; both engaged with "Use the daz-mode skill for this task." No vanilla or pstack arm, to save quota. All 80 runs were valid. The skill was read in 40 of 40 `main` runs and 37 of 40 `stack` runs.
+
+| Arm | Pass rate | Mean score | Tool calls | Minutes | Output tokens |
+|---|---|---|---|---|---|
+| main | 90% | 0.90 | 52.2 | 6.9 | 60,530 |
+| stack | 85% | 0.92 | 41.5 | 6.9 | 58,790 |
+
+- **Score:** stack +0.016 [-0.005, +0.042]; better on 3 cases, worse on 2, tied on 15. No difference.
+- **Steps:** stack makes 20% fewer tool calls in the same time.
+- **Where they differ:** stack is ahead on the slow merge fix (it adds the guard test), the planted-defects review and the migration backfill; behind on the ambiguous ticket and the no-change rounding case.
+- **Failures:** both fail the long CLI on every run (0.74 each time); the migration backfill fails on most runs of both.
+
+So the stack's cuts don't crowd a small model, and its rules don't clearly help one either.
+
 ## 2026-11-03, step C: the improve/* stack against main (Claude Code, Sonnet, 20 cases, 3 runs each)
 
 The branches are `improve/0-generic`, then `1-lean`, `2-docs-first`, `3-subtract` and `4-perf-guard`. They were built by a cloud session that never saw these cases.
@@ -15,6 +31,7 @@ The branches are `improve/0-generic`, then `1-lean`, `2-docs-first`, `3-subtract
 | **stack (level 4)** | **88%** | **0.94** | **$0.146** | 6.7 | 172k | 4,986 |
 
 The paired comparisons, per case, with 95% intervals:
+- **Stack against vanilla:** score +0.079 [+0.031, +0.145], better on 11 cases and worse on 3; cost +28%.
 - **Stack against pstack:** score +0.034 [+0.005, +0.070]; cost -$0.020 per run [-0.033, -0.008]. **Stack beats pstack on both.**
 - **Stack against main:** score +0.021 [-0.001, +0.047], just short; cost -$0.051 per run [-0.065, -0.037], which is -26%.
 - **Lean against main:** score -0.016 [-0.060, +0.017], no difference; cost -27%. Levels 2 to 4 bring the score back up at no extra cost.

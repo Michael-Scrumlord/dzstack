@@ -90,6 +90,7 @@ Activate the core engineering workflow in any session:
 - `skills/how/SKILL.md`: Subsystem walkthroughs and execution tracing.
 - `skills/why/SKILL.md`: Git archaeology and cross-source historical reasoning.
 - `skills/blast-radius/SKILL.md`: Mapping ripple effects and proving the one safety fact with real code execution.
+- `skills/codebase-survey/SKILL.md`: Whole-codebase survey for smells and likely defects: inventory and hotspots, module map, dependency graph, static analysis, flow diagrams, deep read and executed proofs, written as resumable artifacts.
 
 ### 4. Verification & Testing
 - `skills/tdd/SKILL.md`: Red-green-refactor loop, undefined-return mutation check, and pure-function extraction.

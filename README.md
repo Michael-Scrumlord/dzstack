@@ -25,7 +25,7 @@ Token-efficient, high-rigor agent engineering stack for Cursor, Claude Code, Ant
 
 ### 0. Install (one clone, every harness)
 ```bash
-git clone <this repo> ~/dzstack      # Michael's machines: gitea:sirius/dzstack.git
+git clone <this repo> ~/dzstack
 ~/dzstack/scripts/link.sh            # links skills into ~/.claude/skills, ~/.agents/skills, ~/.cursor/skills, and (when ~/.gemini exists) ~/.gemini/config/skills
 ```
 `git pull` in the clone updates every harness. Run `link.sh` again after adding or renaming a skill (on Windows Git Bash, `link.sh` uses native symlinks when Developer Mode is enabled and NTFS directory junctions otherwise). If `pstack` is also installed as a plugin (`pstack:<skill>`), bare skill names resolve to `dzstack`.
@@ -121,5 +121,4 @@ Executable leaf skills grounding architectural and operational decisions:
 - **Structure & hygiene check:** `node scripts/check.mjs` before every commit. It validates frontmatter, skill names, descriptions, cross-references, `principle-*` references, router coverage, Codex policies, banned legacy tokens, owner names (only the plugin author line may carry one), and comment-sicko prompt sync.
 - **Hidden skills** need both `disable-model-invocation: true` (Claude Code, Cursor) and `agents/openai.yaml` with `allow_implicit_invocation: false` (Codex). Without the second, Codex lists the skill in every session (measured: 79 listed skills before, 37 after).
 - **Scripts:** `cd skills/daz-mode/scripts && bun run typecheck && bun test`.
-- **Hosting:** the source of truth is Gitea (`sirius/dzstack`); the public GitHub repository (`Michael-Scrumlord/dzstack`) is a mirror kept by `sirius-github` (`github-publish`). Push to Gitea only.
 

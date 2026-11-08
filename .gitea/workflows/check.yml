@@ -13,7 +13,10 @@ jobs:
       - name: gitleaks (fails on passwords, keys and tokens anywhere in the git history)
         run: |
           V=8.30.1; F=gitleaks_${V}_linux_x64.tar.gz; B=https://github.com/gitleaks/gitleaks/releases/download/v$V
-          curl -sfLO $B/$F && curl -sfL $B/gitleaks_${V}_checksums.txt | grep " $F$" | sha256sum -c -
+          get() { curl -fsSL --retry 2 -o $F "$@"; }  # the release link can 504 for hours (2026-11-08); the API serves the same file
+          get $B/$F || get -H 'Accept: application/octet-stream' https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332058 ||
+            { echo "::error::could not download $F from GitHub (release link and API); rerun the job later"; exit 1; }
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $F" | sha256sum -c -
           tar -xzf $F gitleaks && ./gitleaks git --redact --no-banner .
 
   structure:
@@ -31,7 +34,10 @@ jobs:
       - name: shellcheck 0.10.0
         run: |
           V=0.10.0; F=shellcheck-v$V.linux.x86_64.tar.xz; B=https://github.com/koalaman/shellcheck/releases/download/v$V
-          curl -sfLO $B/$F && echo "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87  $F" | sha256sum -c -
+          get() { curl -fsSL --retry 2 -o $F "$@"; }  # the release link can 504 for hours (2026-11-08); the API serves the same file
+          get $B/$F || get -H 'Accept: application/octet-stream' https://api.github.com/repos/koalaman/shellcheck/releases/assets/155543215 ||
+            { echo "::error::could not download $F from GitHub (release link and API); rerun the job later"; exit 1; }
+          echo "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87  $F" | sha256sum -c -
           tar -xJf $F && ./shellcheck-v$V/shellcheck --severity=warning scripts/link.sh skills/daz-mode/scripts/lane.sh skills/codebase-survey/scripts/inventory.sh
 
   scripts:

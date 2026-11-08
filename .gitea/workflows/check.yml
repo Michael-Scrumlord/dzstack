@@ -1,6 +1,6 @@
-# Runs on the Gitea runner for every push and pull request.
+# Runs on the Gitea runner once per pushed commit; a pull request shows its head commit's run.
 name: check
-on: [push, pull_request]
+on: [push]
 
 jobs:
   secrets:

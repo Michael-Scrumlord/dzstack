@@ -48,10 +48,30 @@ def tree_hash(path: Path) -> str:
 
 # ---------- arms ----------
 
-def resolve_plugin(src: str | None) -> tuple[Path | None, str]:
+def strip_plugin(root: Path, remove) -> None:
+    """Leave `remove` (paths in the plugin) out of a snapshot; manifest hook entries that point at them go too."""
+    for rel in remove:
+        p = root / rel
+        if not p.exists():
+            sys.exit(f"remove: {rel} is not in the plugin")
+        shutil.rmtree(p) if p.is_dir() else p.unlink()
+    manifest = root / ".claude-plugin/plugin.json"
+    if remove and manifest.exists():
+        m = json.loads(manifest.read_text())
+        hooks = m.get("hooks")
+        if isinstance(hooks, str):
+            hooks = [hooks]
+        if isinstance(hooks, list):
+            m["hooks"] = [h for h in hooks if not isinstance(h, str) or (root / h).exists()]
+            manifest.write_text(json.dumps(m, indent=2))
+
+
+def resolve_plugin(src: str | None, remove=()) -> tuple[Path | None, str]:
     """Return (plugin dir, content key) for an arm's plugin source."""
     if not src or src == "none":
         return None, "none"
+    if remove and not src.startswith("git+"):
+        sys.exit(f"plugin source {src!r}: remove works only with git+ sources")
     snaps = STATE / "plugins"
     snaps.mkdir(parents=True, exist_ok=True)
     if src.startswith("git:"):
@@ -75,7 +95,10 @@ def resolve_plugin(src: str | None) -> tuple[Path | None, str]:
         if not m:
             sys.exit(f"plugin source {src!r}: use git+<url>@<commit>:<subdir>")
         url, rev, sub = m.groups()
+        cut = ",".join(sorted(remove))
         out = snaps / f"{re.sub(r'[^A-Za-z0-9]+', '-', url)[-40:]}-{rev[:12]}-{sub.replace('/', '-')}"
+        if cut:
+            out = out.with_name(out.name + "-r" + hashlib.sha256(cut.encode()).hexdigest()[:8])
         if not out.exists():
             clone = snaps / ("clone-" + hashlib.sha256(url.encode()).hexdigest()[:12])
             if not clone.exists():
@@ -84,8 +107,9 @@ def resolve_plugin(src: str | None) -> tuple[Path | None, str]:
             tmp = Path(tempfile.mkdtemp(dir=snaps))
             arch = subprocess.run(["git", "-C", str(clone), "archive", f"{rev}:{sub}"], check=True, capture_output=True).stdout
             subprocess.run(["tar", "-x", "-C", str(tmp)], input=arch, check=True)
+            strip_plugin(tmp, remove)
             tmp.rename(out)
-        return out, f"{url}@{rev[:12]}:{sub}"
+        return out, f"{url}@{rev[:12]}:{sub}" + (f" -{cut}" if cut else "")  # appended: old keys stay valid
     if src.startswith("dir:"):
         p = Path(src[4:]).expanduser().resolve()
         return p, f"dir:{tree_hash(p)}"
@@ -104,7 +128,7 @@ def load_arms(names, extra):
         src, _, prefix = rest.partition("|")
         arms.append({"id": ident, "plugin": src, "prefix": prefix})
     for a in arms:
-        a["dir"], a["key"] = resolve_plugin(a.get("plugin"))
+        a["dir"], a["key"] = resolve_plugin(a.get("plugin"), a.get("remove", ()))
     return arms
 
 
@@ -427,7 +451,7 @@ def load_results(dirs):
     return recs
 
 
-def report(dirs):
+def report(dirs, base=None):
     recs = load_results(dirs)
     if not recs:
         print("no results")
@@ -461,8 +485,10 @@ def report(dirs):
             rs = [r for r in recs if r["arm"] == arm and r["case"] == c]
             cells.append(f"{sum(r['pass'] for r in rs)}/{len(rs)} ({mean([r['score'] for r in rs]):.2f})" if rs else "-")
         print(f"| {c} | " + " | ".join(cells) + " |")
-    base = arms[0]
-    for arm in arms[1:]:
+    if base and base not in arms:
+        sys.exit(f"--base {base!r} is not an arm here ({', '.join(arms)})")
+    base = base or arms[0]
+    for arm in [a for a in arms if a != base]:
         diffs = []
         for c in cases:
             x = [r["score"] for r in recs if r["arm"] == arm and r["case"] == c]
@@ -506,6 +532,7 @@ def main():
     r.add_argument("--force", action="store_true", help="ignore cached results")
     p = sub.add_parser("report")
     p.add_argument("dirs", nargs="*")
+    p.add_argument("--base", help="the arm the others are compared with (default: the run's first arm)")
     a = ap.parse_args()
     if a.cmd == "build":
         cmd_build(a)
@@ -516,7 +543,7 @@ def main():
     elif a.cmd == "run":
         cmd_run(a)
     else:
-        report(a.dirs or sorted((EVALS / "results").iterdir())[-1:])
+        report(a.dirs or sorted((EVALS / "results").iterdir())[-1:], a.base)
 
 
 if __name__ == "__main__":

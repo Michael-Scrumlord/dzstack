@@ -22,5 +22,19 @@
    "*": "Use the poteto-mode skill for this task.\n\n"
   },
   "about": "the Claude Code port of Lauren Tan's pstack; in Claude Code its SessionStart hook routes tasks to poteto-mode, and other agents are told to use poteto-mode"
+ },
+ {
+  "id": "ponytail",
+  "plugin": "git+https://github.com/DietrichGebert/ponytail.git@7801d061243d7b753bad0e0b3c057cd250b11755:",
+  "remove": [
+   "hooks/claude-band.json",
+   "hooks/band",
+   "hooks/ponytail-band-import.js"
+  ],
+  "prefix": {
+   "claude": "",
+   "*": "Use the ponytail skill for this task.\n\n"
+  },
+  "about": "Dietrich Gebert's Ponytail v5.3.3, pinned; in Claude Code its SessionStart hook turns it on at its default level, and other agents are told to use the ponytail skill. Its band (a task board that can post each turn's stats to a webhook) is left out, so nothing in the arm can send data; the band adds nothing the model sees"
  }
 ]

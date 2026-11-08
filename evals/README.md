@@ -1,6 +1,6 @@
 # dzstack evals
 
-Realistic coding tasks with hidden checks, run against several **arms** (no skill pack, dzstack at any git ref, other packs such as pstack) on any of several **agents**: Claude Code, OpenAI Codex, the Antigravity CLI (`agy`, Gemini CLI's successor), and OpenCode with any OpenAI-compatible model, local ones included. The harness reports pass rate, score, cost, tokens, turns, time and diff size for each arm. Use it to answer two questions with numbers: is dzstack better than the alternatives, and is this change to dzstack an improvement?
+Realistic coding tasks with hidden checks, run against several **arms** (no skill pack, dzstack at any git ref, other packs such as pstack and Ponytail) on any of several **agents**: Claude Code, OpenAI Codex, the Antigravity CLI (`agy`, Gemini CLI's successor), and OpenCode with any OpenAI-compatible model, local ones included. The harness reports pass rate, score, cost, tokens, turns, time and diff size for each arm. Use it to answer two questions with numbers: is dzstack better than the alternatives, and is this change to dzstack an improvement?
 
 ## How a run works
 
@@ -27,11 +27,15 @@ Realistic coding tasks with hidden checks, run against several **arms** (no skil
 
 ## Arms
 
-`arms.json` holds the defaults: `vanilla`, `dzstack` (this repository at `HEAD`, engaged with `/daz-mode`) and `pstack` (the Claude Code port at a pinned commit). Add arms on the command line as `--arm 'id=SOURCE|PREFIX'`, where SOURCE is one of:
+`arms.json` holds the defaults: `vanilla`, `dzstack` (this repository at `HEAD`, engaged with `/daz-mode`), `pstack` (the Claude Code port at a pinned commit) and `ponytail` ([Ponytail](https://github.com/DietrichGebert/ponytail) v5.3.3, pinned; its own SessionStart hook turns it on). Third-party packs are pinned to a commit because their hooks run in a container that holds the agent's sign-in. Move a pin only after reading the diff.
+
+Add arms on the command line as `--arm 'id=SOURCE|PREFIX'`, where SOURCE is one of:
 - `none`;
 - `git:<ref>`: this repository at any commit, branch or tag;
-- `git+<url>@<commit>:<subdir>`;
+- `git+<url>@<commit>:<subdir>` (an empty subdir is the repository's root);
 - `dir:<path>`.
+
+An arm in `arms.json` can also list `remove`: paths left out of a `git+` snapshot. Manifest hook entries that point at them are dropped too, and the list is part of the arm's cache key. The `ponytail` arm removes Ponytail's band, a task board that can post each turn's stats to a webhook. The webhook is off by default, but with the band left out, no code in the arm can send data anywhere. The band adds nothing the model sees.
 
 ## Use it
 
@@ -47,6 +51,7 @@ python3 evals/harness/run.py run --arms vanilla --arm 'old=git:main|/daz-mode ' 
 python3 evals/harness/run.py run --agent codex --tag quick --runs 2     # the same arms on Codex
 python3 evals/harness/run.py report evals/results/<claude-run> evals/results/<codex-run>   # side by side
 python3 evals/harness/run.py report evals/results/<run>             # tables again
+python3 evals/harness/run.py report evals/results/<run> --base dzstack   # paired differences against dzstack, not the first arm
 ```
 
 A local model through OpenCode, with no Claude account: put an `opencode.json` like this in `~/.config/agent-evals/` (llama.cpp's `llama-server`, LM Studio and Ollama all serve this API), then run with `--judge-model none`.

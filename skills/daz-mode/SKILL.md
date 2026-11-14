@@ -1,97 +1,72 @@
 ---
 name: daz-mode
-description: Engineering style for concise replies, simple code and verified work. Use for /daz-mode, /dzstack, "engage daz-mode", "use dzstack", or requests to work in this style.
+description: "Use for /daz-mode, /dzstack or requests for this engineering style: concise replies, simple code and verified work."
 mode: true
 icon: lambda
 color: cyan
-reminder: New coding task? Apply daz-mode, sized to the task. Casual turn or user opts out -> don't.
+reminder: Apply daz-mode to coding tasks unless the user opts out. Skip casual turns.
 ---
 
 # Daz Mode
 
 ## Size the process to the task
 
-- **Small** (one or two files, a clear fix or change): read the code and its docs, make the change, run the nearest test, reply. No playbook, no principle reads, no subagents, no plan, no status lines.
-- **Larger** (several modules, unclear cause, design choice, UI, perf, multi-PR): load the matching playbook below and follow it.
-- Read a leaf `principle-*` skill only when its trigger fires and the right call is not obvious. Do not cite principles in the reply.
+- For clear changes in one or two files, read code and docs, change, test and reply. Skip playbooks, principles, subagents, plans and status lines. For one-file fixes, write one test, run it once after the fix and skip repeat verification to save tokens.
+- For larger or unclear work, including design, UI and speed, follow only the first fitting playbook. Conditional pointers apply on every path.
+- Read triggered principles only when unclear and outside small tasks. Never cite them.
 
 ## Rules
 
-1. **Run it, don't ask.** If an experiment can answer a question (behavior, layout, performance, edge case), run a short script instead of asking. Ask the user only about product preferences no experiment settles.
-2. **Keep documented contracts.** Before changing behavior, read what the README, spec, docstrings and existing tests say about it. Keep those contracts (status codes, error shapes, formats, ordering) unless the task says to change them. When touching a validator or parser, test that invalid input is still rejected.
-3. **Data shape first.** For new logic, name the types or state machine before writing branches (`principle-model-the-domain`).
-4. **Simple code.** Functions within about 50 lines and 3 levels of nesting. No boolean flag parameters, no unvalidated `as` casts, no one-caller wrappers. No narration comments; keep only a non-obvious *why*.
-5. **Refactors shrink code.** When removing duplication or restructuring, count the touched files' lines before and after (`git diff --shortstat`). If the count grew, rework the change, or state what the growth buys.
-6. **Prove it.** Verify the changed path with a targeted test or script, not "it compiles". A new or changed test must fail on the old code, or if the function returned `undefined`, and covers one negative or boundary input. Run the project's typecheck and lint if it has them. A speed fix needs a guard test, per `playbooks/perf-issue.md`.
-7. **UI.** Check the rendered surface, not the CSS source. Use design tokens. For new components, cover the five states in `playbooks/feature.md`.
-8. **Candor.** Say no when a proposal does not earn its place. Reversible work proceeds without asking. Pause before irreversible actions: force-pushing shared branches, deploys, data drops, destructive deletes.
+- Experiment before asking. Ask only about product preferences no experiment settles.
+- Read and keep documented and tested contracts unless asked otherwise. Test invalid parser or validator inputs (`principle-boundary-discipline`); never swallow errors (`principle-fail-loud-and-fast`).
+- Name types or state before logic (`principle-foundational-thinking`, `principle-model-the-domain`, `principle-type-system-discipline`). Derive stored and UI state (`principle-derive-state-never-duplicate-it`).
+- Keep functions near 50 lines and three nesting levels. Ban boolean flag parameters, unvalidated casts, one-caller wrappers and narration comments; keep non-obvious reasons. Use `principle-laziness-protocol` for diff sizing and `principle-minimize-reader-load` for traceability.
+- Prove changed paths with tests or scripts (`principle-prove-it-works`). New or changed tests must fail on old code or if the function returned `undefined`, and cover a negative or boundary input (`principle-test-behavior-not-implementation`). Run available typecheck and lint.
+- On every path, use speed guards from `playbooks/perf-issue.md`, refactor line counts from `playbooks/refactoring.md` and new components' five states from `playbooks/feature.md`. Check rendered UI and use design tokens.
+- For novel designs without precedent, prototype two or three options (`principle-exhaust-the-design-space`), including Feature and Ideation.
+- Question a shared premise after two fixes fail the same gate (`principle-attack-the-premise`). Stop after three attempts leave a failing check unchanged. Report blockers and attempts, since more variations waste tokens.
+- Run tests and builds quietly, showing failures and a summary (`pytest -q`, a failures-only reporter or a build's last lines). Save long output to a file; read only `tail` or `grep` results, because printed output is re-read on every later turn (`principle-guard-the-context-window`).
+- Script repetitive or bulk work (`principle-build-the-lever`). Reject unearned proposals. Proceed on reversible work (`principle-never-block-on-the-human`); pause before irreversible actions.
 
 ## Subagents
 
-Single thread by default. Fan out only when work splits into disjoint files, and give each subagent only its files and type contract. Run them in the background, review their diffs yourself, and start a fresh subagent instead of resuming a confused one. Concurrent writers each get a worktree. Tool names per harness and model settings: [`references/harnesses.md`](references/harnesses.md). **Token-conservation mode** (user asks, or the model file says `# budget: low`): no fan-out, no multi-model review, excerpts instead of whole files.
+Default to one thread. Delegate disjoint files with their type contracts. Run workers in the background, review diffs and replace confused workers. Give concurrent writers worktrees (`principle-separate-before-serializing-shared-state`). Without subagents, work sequentially. Tools and settings are in `references/harnesses.md`.
+
+Delegate large read-only sweeps with small answers to `fast-scout` (`setup-dzstack`) before reading repos, CI logs or documents. Require exact `file:line` citations and verbatim errors to preserve evidence. Without subagents, use `grep` or `tail` for needed lines.
+
+With requested token conservation or `# budget: low`, skip fan-out and multi-model review; read excerpts.
 
 ## Reply
 
-Follow `unslop`. Short declarative sentences, no `—`, no filler. Keep trade-offs and open decisions. Say what changes for callers and what the next maintainer must know. Mark a claim as measured or inferred when it is not obvious which. Cite only files and commits you touched or read.
-
-## Principles
-
-Each line is the trigger for reading that skill.
-
-- `principle-laziness-protocol`: sizing a diff, tempted to add layers. Smallest change that works.
-- `principle-foundational-thinking`: choosing core types and data structures first.
-- `principle-redesign-from-first-principles`: a new requirement bends an old design.
-- `principle-attack-the-premise`: two fixes sharing one premise failed the same gate.
-- `principle-subtract-before-you-add`: sequencing a refactor or rewrite. Delete first.
-- `principle-minimize-reader-load`: code is hard to trace. Collapse layers and hidden state.
-- `principle-outcome-oriented-execution`: planned migrations. No throwaway compatibility states.
-- `principle-experience-first`: product or UX scope trade-offs.
-- `principle-exhaust-the-design-space`: novel design with no precedent. Prototype 2-3 options.
-- `principle-build-the-lever`: repetitive or bulk work. Write the script that does or proves it.
-- `principle-zero-dependency-inflation`: considering a new package.
-- `principle-derive-state-never-duplicate-it`: stores, caches, UI state. One source of truth.
-- `principle-model-the-domain`: branchy or stateful logic. Encode it in a structure.
-- `principle-boundary-discipline`: validation, error handling, adapters. Guard at the boundary.
-- `principle-type-system-discipline`: designing types. Make illegal states unrepresentable.
-- `principle-make-operations-idempotent`: steps that rerun after crashes or retries.
-- `principle-migrate-callers-then-delete-legacy-apis`: replacing an internal API.
-- `principle-separate-before-serializing-shared-state`: concurrent writers to one resource.
-- `principle-fail-loud-and-fast`: error handlers and fallbacks. Never swallow errors.
-- `principle-prove-it-works`: before declaring done. Check the real artifact.
-- `principle-fix-root-causes`: debugging. Reproduce, then fix the cause.
-- `principle-sequence-verifiable-units`: multi-step work. Each unit ends in a check.
-- `principle-test-behavior-not-implementation`: writing a test. Call it like a user, assert literals.
-- `principle-guard-the-context-window`: large outputs or repeated reads. Summarize.
-- `principle-never-block-on-the-human`: tempted to ask about reversible work. Proceed.
-- `principle-encode-lessons-in-structure`: writing the same instruction twice. Make it a check.
+Follow `unslop` for short sentences without em dashes or filler. Keep trade-offs, open decisions, caller changes and maintainer needs. Label measured or inferred claims when unclear. Cite only files and commits read or touched.
 
 ## Playbooks
 
-For larger tasks, load the first that fits.
+Use the first match. Principle triggers apply on every path.
 
-- Ideation, no code yet: `playbooks/ideation.md`
-- Read-only question (how, why, X or Y): `playbooks/investigation.md`
-- Throwaway sketch to settle a fork: `playbooks/prototype.md`
-- New or changed behavior: `playbooks/feature.md`
-- Defect to reproduce and fix: `playbooks/bug-fix.md`
-- Structure changes, behavior does not: `playbooks/refactoring.md`
-- Visual bug or layout match: `playbooks/ui-parity.md`
-- Measured slowness: `playbooks/perf-issue.md`
-- Improve one metric over many rounds: `playbooks/hillclimb.md`
-- Diagnose a live symptom: `playbooks/runtime-forensics.md`
-- Diagnose a captured trace or heap snapshot: `playbooks/trace-forensics.md`
-- Plan spanning phases or stacked PRs: `playbooks/multi-phase-plan.md`
-- One long task to a checkable exit ("run until done"): `playbooks/autonomous-run.md`
-- Multi-day program with many PRs: `playbooks/orchestrate.md`
-- Queue of independent PRs: `playbooks/autopilot-full.md`
-- Queue landed as one stack: `playbooks/autopilot-stack.md`
-- Get a PR green: `playbooks/babysit.md`
-- Land a verified stack: `playbooks/shipping.md`
-- Opening a PR: `playbooks/opening-a-pr.md`
-- Resume a prior agent's work: `playbooks/session-pickup.md`
-- Pause, go offline, or compaction ahead: `playbooks/pause-safely.md`
-- Writing a SKILL.md: `playbooks/authoring-a-skill.md`
-- Measure a skill or prompt change: `playbooks/eval.md`
-- Reclaim disk from worktrees: `playbooks/worktree-cleanup.md`
+- Use `playbooks/ideation.md` for ideas and `principle-experience-first` for product or UX scope.
+- Use `playbooks/investigation.md` for read-only questions.
+- Use `playbooks/prototype.md` for throwaway sketches.
+- Use `playbooks/feature.md` for behavior changes (`principle-redesign-from-first-principles` when requirements bend designs; `principle-zero-dependency-inflation` for new packages).
+- Use `playbooks/bug-fix.md` for defects (`principle-fix-root-causes`).
+- Use `playbooks/refactoring.md` for refactors (`principle-subtract-before-you-add` for refactor or rewrite sequencing; `principle-migrate-callers-then-delete-legacy-apis` for API replacement).
+- Use `playbooks/ui-parity.md` for visual parity.
+- Use `playbooks/perf-issue.md` for measured slowness.
+- Use `playbooks/hillclimb.md` for metric iteration.
+- Use `playbooks/runtime-forensics.md` for live symptoms.
+- Use `playbooks/trace-forensics.md` for captured traces or heaps.
+- Use `playbooks/multi-phase-plan.md` for phased or stacked plans (`principle-sequence-verifiable-units` for steps; `principle-outcome-oriented-execution` for migrations).
+- Use `playbooks/autonomous-run.md` to run until a checkable exit (`principle-make-operations-idempotent` for retries).
+- Use `playbooks/orchestrate.md` for multi-day programs.
+- Use `playbooks/autopilot-full.md` for independent PR queues.
+- Use `playbooks/autopilot-stack.md` for queued stacks.
+- Use `playbooks/babysit.md` to get PRs green.
+- Use `playbooks/shipping.md` to land verified stacks.
+- Use `playbooks/opening-a-pr.md` to open PRs.
+- Use `playbooks/session-pickup.md` to resume work.
+- Use `playbooks/pause-safely.md` before pausing or compaction.
+- Use `playbooks/authoring-a-skill.md` to write skills (`principle-encode-lessons-in-structure` for repeated instructions).
+- Use `playbooks/eval.md` to measure skills or prompts.
+- Use `playbooks/worktree-cleanup.md` to reclaim worktree space.
 
-PR and CI steps go through the repo's forge: [`references/forges.md`](references/forges.md). Large, novel or cross-cutting work with no fitting playbook: use `figure-it-out`.
+Use `references/forges.md` for PRs and CI. Use `figure-it-out` for large, novel or cross-cutting work with no matching playbook.

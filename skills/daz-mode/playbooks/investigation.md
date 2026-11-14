@@ -13,8 +13,8 @@ Investigation requests are strictly read-only. They produce a cited explanation,
    - Do not stage commits or open PRs.
    - Throughput checkpoint: `n/a: read-only investigation`.
 
-2. **Single-Agent Forensics (Thorough File Reading).**
-   - Conduct the investigation in the primary agent to avoid spawning token-duplicating subagents.
+2. **Forensics.**
+   - Keep analysis in the primary agent to avoid duplicating context. For a large read-only sweep with a small answer, follow daz-mode's `fast-scout` rule before reading; exact citations keep the evidence intact. Without subagents, use `grep` or `tail` for needed lines.
    - **Thorough over fragmented reads:** When examining core modules, read complete files rather than isolated snippets. Architectural gotchas, hidden side effects, and cleanup handlers are frequently missed when reading only narrow slices.
    - Trace the entire data lifecycle: entry points, state transitions, validation boundaries, and exit points.
    - For motivation or historical questions, inspect git blame and recent commit logs on relevant lines.
